@@ -21,7 +21,8 @@ bool Composition::HasFinishedComposition() const {
   return at(k).status >= Segment::kSelected;
 }
 
-Preedit Composition::GetPreedit(const string& full_input, size_t caret_pos,
+Preedit Composition::GetPreedit(const string& full_input,
+                                size_t caret_pos,
                                 const string& caret) const {
   Preedit preedit;
   preedit.caret_pos = string::npos;
@@ -37,15 +38,13 @@ Preedit Composition::GetPreedit(const string& full_input, size_t caret_pos,
       if (cand) {
         end = cand->end();
         preedit.text += cand->text();
-      }
-      else {  // raw input
+      } else {  // raw input
         end = at(i).end;
         if (!at(i).HasTag("phony")) {
           preedit.text += input_.substr(start, end - start);
         }
       }
-    }
-    else {  // highlighted
+    } else {  // highlighted
       preedit.sel_start = preedit.text.length();
       preedit.sel_end = string::npos;
       if (cand && !cand->preedit().empty()) {
@@ -63,8 +62,7 @@ Preedit Composition::GetPreedit(const string& full_input, size_t caret_pos,
         } else {
           preedit.text += cand->preedit();
         }
-      }
-      else {
+      } else {
         end = at(i).end;
         preedit.text += input_.substr(start, end - start);
       }
@@ -87,10 +85,11 @@ Preedit Composition::GetPreedit(const string& full_input, size_t caret_pos,
   auto prompt = caret + GetPrompt();
   if (!prompt.empty()) {
     preedit.text.insert(preedit.caret_pos, prompt);
-    if (preedit.caret_pos < preedit.sel_end) {
+    if (preedit.caret_pos < preedit.sel_start) {
       preedit.sel_start += prompt.length();
+    }
+    if (preedit.caret_pos < preedit.sel_end) {
       preedit.sel_end += prompt.length();
-      preedit.caret_pos = preedit.sel_start;
     }
   }
   return preedit;
@@ -107,8 +106,7 @@ string Composition::GetCommitText() const {
     if (auto cand = seg.GetSelectedCandidate()) {
       end = cand->end();
       result += cand->text();
-    }
-    else {
+    } else {
       end = seg.end;
       if (!seg.HasTag("phony")) {
         result += input_.substr(seg.start, seg.end - seg.start);
@@ -121,7 +119,7 @@ string Composition::GetCommitText() const {
   return result;
 }
 
-string Composition::GetScriptText() const {
+string Composition::GetScriptText(bool keep_selection) const {
   string result;
   size_t start = 0;
   size_t end = 0;
@@ -129,9 +127,12 @@ string Composition::GetScriptText() const {
     auto cand = seg.GetSelectedCandidate();
     start = end;
     end = cand ? cand->end() : seg.end;
-    if (cand && !cand->preedit().empty())
+    if (keep_selection && cand && !cand->text().empty() &&
+        seg.status >= Segment::kSelected)
+      result += cand->text();
+    else if (cand && !cand->preedit().empty())
       result += boost::erase_first_copy(cand->preedit(), "\t");
-    else
+    else if (!seg.HasTag("phony"))
       result += input_.substr(start, end - start);
   }
   if (input_.length() > end) {
@@ -166,7 +167,8 @@ string Composition::GetDebugText() const {
 }
 
 string Composition::GetTextBefore(size_t pos) const {
-  if (empty()) return string();
+  if (empty())
+    return string();
   for (const auto& seg : boost::adaptors::reverse(*this)) {
     if (seg.end <= pos) {
       if (auto cand = seg.GetSelectedCandidate()) {
@@ -175,6 +177,55 @@ string Composition::GetTextBefore(size_t pos) const {
     }
   }
   return string();
+}
+
+Composition::CandidatePreview Composition::GetCandidatePreview(
+    const string& full_input) const {
+  CandidatePreview preview;
+  // input_ is truncated to the caret; full_input recovers chars past it.
+  const string& source = !full_input.empty() ? full_input : input_;
+
+  if (empty()) {
+    preview.selected_text = source;
+    return preview;
+  }
+
+  // rime appends an empty segment at the caret; use the last non-empty one.
+  size_t active = size() - 1;
+  while (active > 0 && at(active).start >= at(active).end) {
+    --active;
+  }
+
+  string before;
+  for (size_t i = 0; i < active; i++) {
+    const Segment& seg = at(i);
+    if (auto cand = seg.GetSelectedCandidate()) {
+      before += cand->text();
+    } else {
+      before += input_.substr(seg.start, seg.end - seg.start);
+    }
+  }
+  preview.text_before_selection = before;
+
+  const Segment& current_seg = at(active);
+  size_t candidate_end_pos = current_seg.end;
+  string segment_text;
+  if (auto candidate = current_seg.GetSelectedCandidate()) {
+    if (candidate && !candidate->text().empty()) {
+      segment_text = candidate->text();
+      candidate_end_pos = candidate->end();
+    }
+  }
+  if (segment_text.empty()) {
+    segment_text =
+        input_.substr(current_seg.start, current_seg.end - current_seg.start);
+  }
+  preview.selected_text = segment_text;
+
+  if (source.length() > candidate_end_pos) {
+    preview.text_after_selection = source.substr(candidate_end_pos);
+  }
+  return preview;
 }
 
 }  // namespace rime

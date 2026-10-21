@@ -4,8 +4,6 @@
 //
 // 2011-11-27 GONG Chen <chen.sst@gmail.com>
 //
-#include <boost/filesystem.hpp>
-#include <boost/lexical_cast.hpp>
 #include <utf8.h>
 #include <rime/resource.h>
 #include <rime/service.h>
@@ -14,19 +12,19 @@
 
 namespace rime {
 
-static const ResourceType kVocabularyResourceType = {
-  "vocabulary", "", ".txt"
-};
+static const ResourceType kVocabularyResourceType = {"vocabulary", "", ".txt"};
 
 struct VocabularyDb : public TextDb {
-  VocabularyDb(const string& path, const string& name);
+  VocabularyDb(const path& file_path, const string& db_name);
   an<DbAccessor> cursor;
   static const TextFormat format;
 };
 
-VocabularyDb::VocabularyDb(const string& path, const string& name)
-    : TextDb(path, name, kVocabularyResourceType.name, VocabularyDb::format) {
-}
+VocabularyDb::VocabularyDb(const path& file_path, const string& db_name)
+    : TextDb(file_path,
+             db_name,
+             kVocabularyResourceType.name,
+             VocabularyDb::format) {}
 
 static bool rime_vocabulary_entry_parser(const Tsv& row,
                                          string* key,
@@ -42,22 +40,22 @@ static bool rime_vocabulary_entry_parser(const Tsv& row,
 static bool rime_vocabulary_entry_formatter(const string& key,
                                             const string& value,
                                             Tsv* tsv) {
-  //Tsv& row(*tsv);
-  //row.push_back(key);
-  //row.push_back(value);
+  // Tsv& row(*tsv);
+  // row.push_back(key);
+  // row.push_back(value);
   return true;
 }
 
 const TextFormat VocabularyDb::format = {
-  rime_vocabulary_entry_parser,
-  rime_vocabulary_entry_formatter,
-  "Rime vocabulary",
+    rime_vocabulary_entry_parser,
+    rime_vocabulary_entry_formatter,
+    "Rime vocabulary",
 };
 
-string PresetVocabulary::DictFilePath(const string& vocabulary) {
+path PresetVocabulary::DictFilePath(const string& vocabulary) {
   the<ResourceResolver> resource_resolver(
       Service::instance().CreateResourceResolver(kVocabularyResourceType));
-  return resource_resolver->ResolvePath(vocabulary).string();
+  return resource_resolver->ResolvePath(vocabulary);
 }
 
 PresetVocabulary::PresetVocabulary(const string& vocabulary) {
@@ -72,14 +70,13 @@ PresetVocabulary::~PresetVocabulary() {
     db_->Close();
 }
 
-bool PresetVocabulary::GetWeightForEntry(const string &key, double *weight) {
+bool PresetVocabulary::GetWeightForEntry(const string& key, double* weight) {
   string weight_str;
   if (!db_ || !db_->Fetch(key, &weight_str))
     return false;
   try {
-    *weight = boost::lexical_cast<double>(weight_str);
-  }
-  catch (...) {
+    *weight = std::stod(weight_str);
+  } catch (...) {
     return false;
   }
   return true;
@@ -90,14 +87,13 @@ void PresetVocabulary::Reset() {
     db_->cursor->Reset();
 }
 
-bool PresetVocabulary::GetNextEntry(string *key, string *value) {
+bool PresetVocabulary::GetNextEntry(string* key, string* value) {
   if (!db_ || !db_->cursor)
     return false;
   bool got = false;
   do {
     got = db_->cursor->GetNextRecord(key, value);
-  }
-  while (got && !IsQualifiedPhrase(*key, *value));
+  } while (got && !IsQualifiedPhrase(*key, *value));
   return got;
 }
 
@@ -110,7 +106,7 @@ bool PresetVocabulary::IsQualifiedPhrase(const string& phrase,
       return false;
   }
   if (min_phrase_weight_ > 0.0) {
-    double weight = boost::lexical_cast<double>(weight_str);
+    double weight = std::stod(weight_str);
     if (weight < min_phrase_weight_)
       return false;
   }

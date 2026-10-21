@@ -5,7 +5,7 @@
 // 2011-04-20 GONG Chen <chen.sst@gmail.com>
 //
 #include <sstream>
-#include <boost/format.hpp>
+#include <iomanip>
 #include <rime/key_event.h>
 #include <rime/key_table.h>
 
@@ -36,17 +36,16 @@ string KeyEvent::repr() const {
     return modifiers.str() + name;
   }
   // no name :-| return its hex value
-  string value;
+  std::ostringstream value;
+  value << "0x" << std::setfill('0');
   if (keycode_ <= 0xffff) {
-    value = boost::str(boost::format("0x%4x") % keycode_);
-  }
-  else if (keycode_ <= 0xffffff) {
-    value = boost::str(boost::format("0x%6x") % keycode_);
-  }
-  else {
+    value << std::setw(4) << std::hex << keycode_;
+  } else if (keycode_ <= 0xffffff) {
+    value << std::setw(6) << std::hex << keycode_;
+  } else {
     return "(unknown)";  // invalid keycode
   }
-  return modifiers.str() + value;
+  return modifiers.str() + value.str();
 }
 
 bool KeyEvent::Parse(const string& repr) {
@@ -56,8 +55,7 @@ bool KeyEvent::Parse(const string& repr) {
   }
   if (repr.size() == 1) {
     keycode_ = static_cast<int>(repr[0]);
-  }
-  else {
+  } else {
     size_t start = 0;
     size_t found = 0;
     string token;
@@ -67,8 +65,7 @@ bool KeyEvent::Parse(const string& repr) {
       mask = RimeGetModifierByName(token.c_str());
       if (mask) {
         modifier_ |= mask;
-      }
-      else {
+      } else {
         LOG(ERROR) << "parse error: unrecognized modifier '" << token << "'";
         return false;
       }
@@ -91,9 +88,8 @@ KeySequence::KeySequence(const string& repr) {
 
 static bool is_unescaped_character(const KeyEvent& key_event) {
   int ch = key_event.keycode();
-  return key_event.modifier() == 0 &&
-    ch >= 0x20 && ch <= 0x7e &&
-    ch != '{' && ch != '}';
+  return key_event.modifier() == 0 && ch >= 0x20 && ch <= 0x7e && ch != '{' &&
+         ch != '}';
 }
 
 string KeySequence::repr() const {
@@ -103,11 +99,9 @@ string KeySequence::repr() const {
     k = it->repr();
     if (k.size() == 1) {
       result << k;
-    }
-    else if (is_unescaped_character(*it)) {
+    } else if (is_unescaped_character(*it)) {
       result << char(it->keycode());
-    }
-    else {
+    } else {
       result << '{' << k << '}';
     }
   }
@@ -130,8 +124,7 @@ bool KeySequence::Parse(const string& repr) {
       }
       len = j - start;
       i = j;
-    }
-    else {
+    } else {
       start = i;
       len = 1;
     }

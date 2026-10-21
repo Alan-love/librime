@@ -4,6 +4,7 @@
 //
 // 2011-11-20 GONG Chen <chen.sst@gmail.com>
 //
+#include <algorithm>
 #include <boost/range/adaptor/reversed.hpp>
 #include <rime/common.h>
 #include <rime/composition.h>
@@ -18,32 +19,70 @@
 namespace rime {
 
 static Navigator::ActionDef navigation_actions[] = {
-  { "rewind", &Navigator::Rewind },
-  { "left_by_char", &Navigator::LeftByChar },
-  { "right_by_char", &Navigator::RightByChar },
-  { "left_by_syllable", &Navigator::LeftBySyllable },
-  { "right_by_syllable", &Navigator::RightBySyllable },
-  { "home", &Navigator::Home },
-  { "end", &Navigator::End },
-  Navigator::kActionNoop
-};
+    {"rewind", &Navigator::Rewind},
+    {"forward", &Navigator::Forward},
+    {"left_by_char", &Navigator::LeftByChar},
+    {"right_by_char", &Navigator::RightByChar},
+    {"left_by_syllable", &Navigator::LeftBySyllable},
+    {"right_by_syllable", &Navigator::RightBySyllable},
+    {"left_by_char_no_loop", &Navigator::LeftByCharNoLoop},
+    {"right_by_char_no_loop", &Navigator::RightByCharNoLoop},
+    {"left_by_syllable_no_loop", &Navigator::LeftBySyllableNoLoop},
+    {"right_by_syllable_no_loop", &Navigator::RightBySyllableNoLoop},
+    {"home", &Navigator::Home},
+    {"end", &Navigator::End},
+    Navigator::kActionNoop};
 
 Navigator::Navigator(const Ticket& ticket)
-    : Processor(ticket), KeyBindingProcessor<Navigator>(navigation_actions) {
-  // Default key binding.
-  Bind({XK_Left, 0}, &Navigator::Rewind);
-  Bind({XK_Left, kControlMask}, &Navigator::LeftBySyllable);
-  Bind({XK_KP_Left, 0}, &Navigator::LeftByChar);
-  Bind({XK_Right, 0}, &Navigator::RightByChar);
-  Bind({XK_Right, kControlMask}, &Navigator::RightBySyllable);
-  Bind({XK_KP_Right, 0}, &Navigator::RightByChar);
-  Bind({XK_Home, 0}, &Navigator::Home);
-  Bind({XK_KP_Home, 0}, &Navigator::Home);
-  Bind({XK_End, 0}, &Navigator::End);
-  Bind({XK_KP_End, 0}, &Navigator::End);
+    : Processor(ticket), KeyBindingProcessor(navigation_actions) {
+  // default key bindings
+  {
+    auto& keymap = get_keymap(Horizontal);
+    keymap.Bind({XK_Left, 0}, &Navigator::Rewind);
+    keymap.Bind({XK_Left, kControlMask}, &Navigator::LeftBySyllable);
+    keymap.Bind({XK_KP_Left, 0}, &Navigator::LeftByChar);
+    keymap.Bind({XK_Right, 0}, &Navigator::Forward);
+    keymap.Bind({XK_Right, kControlMask}, &Navigator::RightBySyllable);
+    keymap.Bind({XK_KP_Right, 0}, &Navigator::RightByChar);
+    keymap.Bind({XK_Home, 0}, &Navigator::Home);
+    keymap.Bind({XK_KP_Home, 0}, &Navigator::Home);
+    keymap.Bind({XK_End, 0}, &Navigator::End);
+    keymap.Bind({XK_KP_End, 0}, &Navigator::End);
+  }
+  {
+    auto& keymap = get_keymap(Vertical);
+    keymap.Bind({XK_Up, 0}, &Navigator::Rewind);
+    keymap.Bind({XK_Up, kControlMask}, &Navigator::LeftBySyllable);
+    keymap.Bind({XK_KP_Up, 0}, &Navigator::LeftByChar);
+    keymap.Bind({XK_Down, 0}, &Navigator::Forward);
+    keymap.Bind({XK_Down, kControlMask}, &Navigator::RightBySyllable);
+    keymap.Bind({XK_KP_Down, 0}, &Navigator::RightByChar);
+    keymap.Bind({XK_Home, 0}, &Navigator::Home);
+    keymap.Bind({XK_KP_Home, 0}, &Navigator::Home);
+    keymap.Bind({XK_End, 0}, &Navigator::End);
+    keymap.Bind({XK_KP_End, 0}, &Navigator::End);
+  }
 
   Config* config = engine_->schema()->config();
-  KeyBindingProcessor::LoadConfig(config, "navigator");
+  LoadConfig(config, "navigator", Horizontal);
+  LoadConfig(config, "navigator/vertical", Vertical);
+  config->GetString("speller/delimiter", &delimiters_);
+  string syllable_jump_position;
+  if (config->GetString("navigator/syllable_jump_position",
+                        &syllable_jump_position)) {
+    if (syllable_jump_position == "before_delimiter") {
+      syllable_jump_position_ = BeforeDelimiter;
+    } else {
+      syllable_jump_position_ = AfterDelimiter;
+    }
+  }
+
+  select_connection_ = engine_->context()->select_notifier().connect(
+      [this](Context* ctx) { OnSelect(ctx); });
+}
+
+Navigator::~Navigator() {
+  select_connection_.disconnect();
 }
 
 ProcessResult Navigator::ProcessKeyEvent(const KeyEvent& key_event) {
@@ -52,61 +91,115 @@ ProcessResult Navigator::ProcessKeyEvent(const KeyEvent& key_event) {
   Context* ctx = engine_->context();
   if (!ctx->IsComposing())
     return kNoop;
-  return KeyBindingProcessor::ProcessKeyEvent(key_event, ctx);
+  TextOrientation text_orientation =
+      ctx->get_option("_vertical") ? Vertical : Horizontal;
+  return KeyBindingProcessor::ProcessKeyEvent(key_event, ctx, text_orientation,
+                                              FallbackOptions::All);
 }
 
-void Navigator::LeftBySyllable(Context* ctx) {
+void Navigator::OnSelect(Context* ctx) {
+  spans_.Clear();
+}
+
+bool Navigator::LeftBySyllable(Context* ctx) {
   BeginMove(ctx);
   size_t confirmed_pos = ctx->composition().GetConfirmedPosition();
-  JumpLeft(ctx, confirmed_pos) || GoToEnd(ctx);
+  JumpLeft(ctx, confirmed_pos, true);
+  return true;
 }
 
-void Navigator::LeftByChar(Context* ctx) {
+bool Navigator::LeftBySyllableNoLoop(Context* ctx) {
+  BeginMove(ctx);
+  size_t confirmed_pos = ctx->composition().GetConfirmedPosition();
+  JumpLeft(ctx, confirmed_pos, false);
+  return true;
+}
+
+bool Navigator::LeftByChar(Context* ctx) {
   BeginMove(ctx);
   MoveLeft(ctx) || GoToEnd(ctx);
+  return true;
 }
 
-void Navigator::Rewind(Context* ctx) {
+bool Navigator::LeftByCharNoLoop(Context* ctx) {
   BeginMove(ctx);
-  // take a jump leftwards when there are multiple spans,
-  // but not from the middle of a span.
-  (
-      spans_.Count() > 1 && spans_.HasVertex(ctx->caret_pos())
-      ? JumpLeft(ctx) : MoveLeft(ctx)
-  ) || GoToEnd(ctx);
+  MoveLeft(ctx);
+  return true;
 }
 
-void Navigator::RightBySyllable(Context* ctx) {
+bool Navigator::Rewind(Context* ctx) {
   BeginMove(ctx);
   size_t confirmed_pos = ctx->composition().GetConfirmedPosition();
-  JumpRight(ctx, confirmed_pos) || GoToEnd(ctx);
+  // take a jump leftwards when there are multiple non-confirmed spans,
+  // but not from the middle of a span.
+  if (spans_.Count(confirmed_pos, spans_.end()) > 1 &&
+      spans_.HasVertex(ctx->caret_pos())) {
+    JumpLeft(ctx, confirmed_pos, true);
+  } else {
+    MoveLeft(ctx);
+  }
+  return true;
 }
 
-void Navigator::RightByChar(Context* ctx) {
+bool Navigator::Forward(Context* ctx) {
+  BeginMove(ctx);
+  size_t confirmed_pos = ctx->composition().GetConfirmedPosition();
+  // when half-selected, count the rest spans.
+  if (spans_.Count(confirmed_pos, spans_.end()) > 1 &&
+      spans_.HasVertex(ctx->caret_pos())) {
+    JumpRight(ctx, confirmed_pos, true);
+  } else {
+    MoveRight(ctx);
+  }
+  return true;
+}
+
+bool Navigator::RightBySyllable(Context* ctx) {
+  BeginMove(ctx);
+  size_t confirmed_pos = ctx->composition().GetConfirmedPosition();
+  JumpRight(ctx, confirmed_pos, true);
+  return true;
+}
+
+bool Navigator::RightBySyllableNoLoop(Context* ctx) {
+  BeginMove(ctx);
+  JumpRight(ctx, 0, false);
+  return true;
+}
+
+bool Navigator::RightByChar(Context* ctx) {
   BeginMove(ctx);
   MoveRight(ctx) || GoHome(ctx);
+  return true;
 }
 
-void Navigator::Home(Context* ctx) {
+bool Navigator::RightByCharNoLoop(Context* ctx) {
+  BeginMove(ctx);
+  MoveRight(ctx);
+  return true;
+}
+
+bool Navigator::Home(Context* ctx) {
   BeginMove(ctx);
   GoHome(ctx);
+  return true;
 }
 
-void Navigator::End(Context* ctx) {
+bool Navigator::End(Context* ctx) {
   BeginMove(ctx);
   GoToEnd(ctx);
+  return true;
 }
 
 void Navigator::BeginMove(Context* ctx) {
-  ctx->ConfirmPreviousSelection();
+  ctx->BeginEditing();
   // update spans
   if (input_ != ctx->input() || ctx->caret_pos() > spans_.end()) {
     input_ = ctx->input();
     spans_.Clear();
-    for (const auto &seg : ctx->composition()) {
+    for (const auto& seg : ctx->composition()) {
       if (auto phrase = As<Phrase>(
-              Candidate::GetGenuineCandidate(
-                  seg.GetSelectedCandidate()))) {
+              Candidate::GetGenuineCandidate(seg.GetSelectedCandidate()))) {
         spans_.AddSpans(phrase->spans());
       }
       spans_.AddSpan(seg.start, seg.end);
@@ -114,29 +207,51 @@ void Navigator::BeginMove(Context* ctx) {
   }
 }
 
-bool Navigator::JumpLeft(Context* ctx, size_t start_pos) {
+bool Navigator::JumpLeft(Context* ctx, size_t start_pos, bool loop) {
   DLOG(INFO) << "jump left.";
   size_t caret_pos = ctx->caret_pos();
-  size_t stop = spans_.PreviousStop(caret_pos);
-  if (stop < start_pos) {
-    stop = ctx->input().length();  // rewind
-  }
-  if (stop != caret_pos) {
-    ctx->set_caret_pos(stop);
+  size_t end_of_translation = spans_.end();
+  size_t end_of_input = ctx->input().length();
+  size_t span_start_pos = ToSpanStart(caret_pos);
+  size_t new_pos =
+      // 跳過未翻譯的輸入碼
+      (span_start_pos > end_of_translation) ? end_of_translation
+      // 迴轉？
+      : (loop && span_start_pos <= start_pos)
+          ?
+          // 若未翻譯完則須重譯，光標迴轉到結尾
+          (end_of_input > end_of_translation)
+              ? end_of_input
+              // 迴轉後向前找
+              : (std::max)(start_pos, spans_.PreviousStop(end_of_input))
+          // 跳至前一個切分點
+          : (std::max)(start_pos, spans_.PreviousStop(span_start_pos));
+  if (syllable_jump_position_ == BeforeDelimiter)
+    new_pos = ToSyllableEnd(new_pos);
+  if (new_pos != caret_pos) {
+    ctx->set_caret_pos(new_pos);
     return true;
   }
   return false;
 }
 
-bool Navigator::JumpRight(Context* ctx, size_t start_pos) {
+bool Navigator::JumpRight(Context* ctx, size_t start_pos, bool loop) {
   DLOG(INFO) << "jump right.";
   size_t caret_pos = ctx->caret_pos();
-  if (caret_pos == ctx->input().length()) {
-    caret_pos = start_pos;  // rewind
-  }
-  size_t stop = spans_.NextStop(caret_pos);
-  if (stop != caret_pos) {
-    ctx->set_caret_pos(stop);
+  size_t end_of_translation = spans_.end();
+  size_t end_of_input = ctx->input().length();
+  size_t span_end_pos = ToSpanEnd(caret_pos);
+  size_t new_pos =
+      // 已在結尾則從頭開始向後找
+      (loop && span_end_pos == end_of_input) ? spans_.NextStop(start_pos)
+      // 跳過未翻譯的輸入碼
+      : (span_end_pos >= end_of_translation) ? end_of_input
+                                             // 跳至後一個切分點
+                                             : spans_.NextStop(span_end_pos);
+  if (syllable_jump_position_ == BeforeDelimiter)
+    new_pos = ToSyllableEnd(new_pos);
+  if (new_pos != caret_pos) {
+    ctx->set_caret_pos(new_pos);
     return true;
   }
   return false;
@@ -192,6 +307,55 @@ bool Navigator::GoToEnd(Context* ctx) {
     return true;
   }
   return false;
+}
+
+// Considering delimiters (both leading and trailing), the span can consist of
+// four positions:
+//
+// [ '       '                    syll             '                 '        ']
+//   ^        ^                                    ^                           ^
+//   | start  |leading_delim_end                   |trailing_delim_start
+//   |trailing_delim_end=end
+//
+// Spans only consider start and end. To jump precisely, sometimes we
+// need to fix the current position to a semantic boundary.
+//
+// Find 'start' if pos in leading delimiters, i.e. [start, leading_delim_end].
+size_t Navigator::ToSpanStart(size_t pos) {
+  return SkipDelimiterBackward(pos);
+}
+
+// Find 'trailing_delim_end' or 'end' if pos in trailing delimiters,
+// i.e. [trailing_delim_start, end].
+size_t Navigator::ToSpanEnd(size_t pos) {
+  return SkipDelimiterForward(pos);
+}
+
+// Find 'leading_delim_end', or the start pos of the actual syllable,
+// if pos in leading delimiters, i.e. [start, leading_delim_end].
+size_t Navigator::ToSyllableStart(size_t pos) {
+  return SkipDelimiterForward(pos);
+}
+
+// Find 'trailing_delim_start', or the end pos of the actual syllable,
+// if pos in trailing delimiters, i.e. [trailing_delim_end, end].
+size_t Navigator::ToSyllableEnd(size_t pos) {
+  return SkipDelimiterBackward(pos);
+}
+
+// Move pos backward (decreasing pos), skipping any delimiter.
+size_t Navigator::SkipDelimiterBackward(size_t pos) {
+  while (pos > 0 && delimiters_.find(input_[pos - 1]) != string::npos)
+    pos--;
+  return pos;
+}
+
+// Move pos forward (increasing pos), skipping any delimiter.
+size_t Navigator::SkipDelimiterForward(size_t pos) {
+  while (pos < input_.length() - 1 &&
+         delimiters_.find(input_[pos]) != string::npos)
+    pos++;
+  return pos;
 }
 
 }  // namespace rime

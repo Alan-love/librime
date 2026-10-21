@@ -28,15 +28,19 @@ class Switcher : public Processor, public Engine {
   virtual ProcessResult ProcessKeyEvent(const KeyEvent& key_event);
 
   static int ForEachSchemaListEntry(
-      Config* config, function<bool (const string& schema_id)> process_entry);
+      Config* config,
+      function<bool(const string& schema_id)> process_entry);
 
+  void SetActiveSchema(const string& schema_id);
   Schema* CreateSchema();
   void SelectNextSchema();
   bool IsAutoSave(const string& option) const;
+  void RestoreSavedOptions();
 
   void RefreshMenu();
   void Activate();
   void Deactivate();
+  void DeactivateAndApply(function<void()> apply);
 
   Engine* attached_engine() const { return engine_; }
   Config* user_config() const { return user_config_.get(); }
@@ -45,7 +49,7 @@ class Switcher : public Processor, public Engine {
  protected:
   void InitializeComponents();
   void LoadSettings();
-  void RestoreSavedOptions();
+
   void HighlightNextSchema();
   void OnSelect(Context* ctx);
 
@@ -63,9 +67,7 @@ class Switcher : public Processor, public Engine {
 
 class SwitcherCommand {
  public:
-  SwitcherCommand(const string& keyword)
-      : keyword_(keyword) {
-  }
+  SwitcherCommand(const string& keyword) : keyword_(keyword) {}
   virtual void Apply(Switcher* switcher) = 0;
   const string& keyword() const { return keyword_; }
 

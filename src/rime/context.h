@@ -16,15 +16,14 @@ namespace rime {
 class Candidate;
 class KeyEvent;
 
-class Context {
+class RIME_DLL Context {
  public:
-  using Notifier = signal<void (Context* ctx)>;
-  using OptionUpdateNotifier =
-      signal<void (Context* ctx, const string& option)>;
+  using Notifier = signal<void(Context* ctx)>;
+  using OptionUpdateNotifier = signal<void(Context* ctx, const string& option)>;
   using PropertyUpdateNotifier =
-      signal<void (Context* ctx, const string& property)>;
+      signal<void(Context* ctx, const string& property)>;
   using KeyEventNotifier =
-      signal<void (Context* ctx, const KeyEvent& key_event)>;
+      signal<void(Context* ctx, const KeyEvent& key_event)>;
 
   Context() = default;
   ~Context() = default;
@@ -37,19 +36,26 @@ class Context {
   bool HasMenu() const;
   an<Candidate> GetSelectedCandidate() const;
 
+  Composition::CandidatePreview GetCandidatePreview() const;
+
   bool PushInput(char ch);
   bool PushInput(const string& str);
   bool PopInput(size_t len = 1);
   bool DeleteInput(size_t len = 1);
   void Clear();
+  // Clear and notify abort
+  void AbortComposition();
 
   // return false if there is no candidate at index
   bool Select(size_t index);
+  // return false if the selected index has not changed
+  bool Highlight(size_t index);
+  bool DeleteCandidate(size_t index);
   // return false if there's no candidate for current segment
   bool ConfirmCurrentSelection();
   bool DeleteCurrentSelection();
-
-  bool ConfirmPreviousSelection();
+  void BeginEditing();
+  bool ConfirmPreviousSelection();  // deprecated
   bool ReopenPreviousSegment();
   bool ClearPreviousSegment();
   bool ReopenPreviousSelection();
@@ -72,6 +78,8 @@ class Context {
   bool get_option(const string& name) const;
   void set_property(const string& name, const string& value);
   string get_property(const string& name) const;
+  const map<string, bool>& options() const { return options_; }
+  const map<string, string>& properties() const { return properties_; }
   // options and properties starting with '_' are local to schema;
   // others are session scoped.
   void ClearTransientOptions();
@@ -80,15 +88,14 @@ class Context {
   Notifier& select_notifier() { return select_notifier_; }
   Notifier& update_notifier() { return update_notifier_; }
   Notifier& delete_notifier() { return delete_notifier_; }
+  Notifier& abort_notifier() { return abort_notifier_; }
   OptionUpdateNotifier& option_update_notifier() {
     return option_update_notifier_;
   }
   PropertyUpdateNotifier& property_update_notifier() {
     return property_update_notifier_;
   }
-  KeyEventNotifier& unhandled_key_notifier() {
-    return unhandled_key_notifier_;
-  }
+  KeyEventNotifier& unhandled_key_notifier() { return unhandled_key_notifier_; }
 
  private:
   string GetSoftCursor() const;
@@ -104,6 +111,7 @@ class Context {
   Notifier select_notifier_;
   Notifier update_notifier_;
   Notifier delete_notifier_;
+  Notifier abort_notifier_;
   OptionUpdateNotifier option_update_notifier_;
   PropertyUpdateNotifier property_update_notifier_;
   KeyEventNotifier unhandled_key_notifier_;

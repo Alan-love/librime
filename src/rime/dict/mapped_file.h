@@ -8,8 +8,8 @@
 #define RIME_MAPPED_FILE_H_
 
 #include <stdint.h>
+#include <algorithm>
 #include <cstring>
-#include <boost/utility.hpp>
 #include <rime_api.h>
 #include <rime/common.h>
 
@@ -25,30 +25,24 @@ class OffsetPtr {
   OffsetPtr(Offset offset) : offset_(offset) {}
   OffsetPtr(const T* ptr) : OffsetPtr(to_offset(ptr)) {}
   OffsetPtr(const OffsetPtr<T>& ptr) : OffsetPtr(ptr.get()) {}
-  OffsetPtr<T>& operator= (const OffsetPtr<T>& ptr) {
+  OffsetPtr<T>& operator=(const OffsetPtr<T>& ptr) {
     offset_ = to_offset(ptr.get());
     return *this;
   }
-  OffsetPtr<T>& operator= (const T* ptr) {
+  OffsetPtr<T>& operator=(const T* ptr) {
     offset_ = to_offset(ptr);
     return *this;
   }
-  operator bool() const {
-    return !!offset_;
-  }
-  T* operator-> () const {
-    return get();
-  }
-  T& operator* () const {
-    return *get();
-  }
-  T& operator[] (size_t index) const {
-    return *(get() + index);
-  }
+  operator bool() const { return !!offset_; }
+  T* operator->() const { return get(); }
+  T& operator*() const { return *get(); }
+  T& operator[](size_t index) const { return *(get() + index); }
   T* get() const {
-    if (!offset_) return NULL;
+    if (!offset_)
+      return NULL;
     return reinterpret_cast<T*>((char*)&offset_ + offset_);
   }
+
  private:
   Offset to_offset(const T* ptr) const {
     return ptr ? (char*)ptr - (char*)(&offset_) : 0;
@@ -87,10 +81,10 @@ struct List {
 
 class MappedFileImpl;
 
-class MappedFile : boost::noncopyable {
+class RIME_DLL MappedFile {
  protected:
-  explicit MappedFile(const string& file_name);
-  RIME_API virtual ~MappedFile();
+  explicit MappedFile(const path& file_path);
+  virtual ~MappedFile();
 
   bool Create(size_t capacity);
   bool OpenReadOnly();
@@ -112,26 +106,30 @@ class MappedFile : boost::noncopyable {
   char* address() const;
 
  public:
+  // noncpyable
+  MappedFile(const MappedFile&) = delete;
+  MappedFile& operator=(const MappedFile&) = delete;
+
   bool Exists() const;
   bool IsOpen() const;
-  RIME_API void Close();
-  RIME_API bool Remove();
+  void Close();
+  bool Remove();
 
   template <class T>
   T* Find(size_t offset);
 
-  const string& file_name() const { return file_name_; }
+  const path& file_path() const { return file_path_; }
   size_t file_size() const { return size_; }
 
  private:
-  string file_name_;
+  path file_path_;
   size_t size_ = 0;
   the<MappedFileImpl> file_;
 };
 
 // member function definitions
 
-# define RIME_ALIGNED(size, T) ((size + alignof(T) - 1) & ~(alignof(T) - 1))
+#define RIME_ALIGNED(size, T) ((size + alignof(T) - 1) & ~(alignof(T) - 1))
 
 template <class T>
 T* MappedFile::Allocate(size_t count) {
@@ -144,11 +142,11 @@ T* MappedFile::Allocate(size_t count) {
   if (used_space + required_space > file_size) {
     // not enough space; grow the file
     size_t new_size = (std::max)(used_space + required_space, file_size * 2);
-    if(!Resize(new_size) || !OpenReadWrite())
+    if (!Resize(new_size) || !OpenReadWrite())
       return NULL;
   }
   T* ptr = reinterpret_cast<T*>(address() + used_space);
-  std::memset(ptr, 0, required_space);
+  std::memset((void*)ptr, 0, required_space);
   size_ = used_space + required_space;
   return ptr;
 }

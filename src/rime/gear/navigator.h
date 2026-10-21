@@ -15,31 +15,59 @@
 
 namespace rime {
 
-class Navigator : public Processor, public KeyBindingProcessor<Navigator> {
+class Navigator : public Processor, public KeyBindingProcessor<Navigator, 2> {
  public:
+  enum TextOrientation {
+    Horizontal = 0,
+    Vertical = 1,
+  };
+  enum SyllableJumpPosition {
+    AfterDelimiter = 0,
+    BeforeDelimiter = 1,
+  };
+
   explicit Navigator(const Ticket& ticket);
+  virtual ~Navigator();
 
   ProcessResult ProcessKeyEvent(const KeyEvent& key_event) override;
 
   Handler Rewind;
+  Handler Forward;
   Handler LeftByChar;
   Handler RightByChar;
   Handler LeftBySyllable;
   Handler RightBySyllable;
   Handler Home;
   Handler End;
+  Handler LeftByCharNoLoop;
+  Handler RightByCharNoLoop;
+  Handler LeftBySyllableNoLoop;
+  Handler RightBySyllableNoLoop;
 
  private:
   void BeginMove(Context* ctx);
-  bool JumpLeft(Context* ctx, size_t start_pos = 0);
-  bool JumpRight(Context* ctx, size_t start_pos = 0);
+  bool JumpLeft(Context* ctx, size_t start_pos = 0, bool loop = false);
+  bool JumpRight(Context* ctx, size_t start_pos = 0, bool loop = false);
   bool MoveLeft(Context* ctx);
   bool MoveRight(Context* ctx);
   bool GoHome(Context* ctx);
   bool GoToEnd(Context* ctx);
+  void OnSelect(Context*);
 
   string input_;
   Spans spans_;
+
+  connection select_connection_;
+
+ private:
+  string delimiters_;
+  SyllableJumpPosition syllable_jump_position_ = AfterDelimiter;
+  size_t ToSpanStart(size_t pos);
+  size_t ToSpanEnd(size_t pos);
+  size_t ToSyllableStart(size_t pos);
+  size_t ToSyllableEnd(size_t pos);
+  size_t SkipDelimiterBackward(size_t pos);
+  size_t SkipDelimiterForward(size_t pos);
 };
 
 }  // namespace rime

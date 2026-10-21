@@ -23,22 +23,22 @@ struct QueryResult;
 
 }  // namespace dictionary
 
-class DictEntryIterator : public DictEntryFilterBinder {
+class RIME_DLL DictEntryIterator : public DictEntryFilterBinder {
  public:
-  RIME_API DictEntryIterator();
+  DictEntryIterator();
   virtual ~DictEntryIterator() = default;
   DictEntryIterator(const DictEntryIterator& other) = default;
-  DictEntryIterator& operator= (const DictEntryIterator& other) = default;
+  DictEntryIterator& operator=(const DictEntryIterator& other) = default;
   DictEntryIterator(DictEntryIterator&& other) = default;
-  DictEntryIterator& operator= (DictEntryIterator&& other) = default;
+  DictEntryIterator& operator=(DictEntryIterator&& other) = default;
 
   void AddChunk(dictionary::Chunk&& chunk);
   void Sort();
-  RIME_API void AddFilter(DictEntryFilter filter) override;
-  RIME_API an<DictEntry> Peek();
-  RIME_API bool Next();
+  void AddFilter(DictEntryFilter filter) override;
+  an<DictEntry> Peek();
+  bool Next();
   bool Skip(size_t num_entries);
-  RIME_API bool exhausted() const;
+  bool exhausted() const;
   size_t entry_count() const { return entry_count_; }
 
  protected:
@@ -61,30 +61,35 @@ struct Ticket;
 
 class Dictionary : public Class<Dictionary, const Ticket&> {
  public:
-  RIME_API Dictionary(string name,
+  RIME_DLL Dictionary(string name,
                       vector<string> packs,
                       vector<of<Table>> tables,
                       an<Prism> prism);
   virtual ~Dictionary();
 
   bool Exists() const;
-  RIME_API bool Remove();
-  RIME_API bool Load();
+  RIME_DLL bool Remove();
+  RIME_DLL bool Load();
 
-  RIME_API an<DictEntryCollector> Lookup(const SyllableGraph& syllable_graph,
-                                         size_t start_pos,
-                                         double initial_credibility = 0.0);
+  RIME_DLL an<DictEntryCollector> Lookup(
+      const SyllableGraph& syllable_graph,
+      size_t start_pos,
+      const hash_set<string>* blacklist = nullptr,
+      bool predict_word = false,
+      double initial_credibility = 0.0);
   // if predictive is true, do an expand search with limit,
   // otherwise do an exact match.
   // return num of matching keys.
-  RIME_API size_t LookupWords(DictEntryIterator* result,
+  RIME_DLL size_t LookupWords(DictEntryIterator* result,
                               const string& str_code,
-                              bool predictive, size_t limit = 0);
+                              bool predictive,
+                              size_t limit = 0,
+                              const hash_set<string>* blacklist = nullptr);
   // translate syllable id sequence to string code
-  RIME_API bool Decode(const Code& code, vector<string>* result);
+  RIME_DLL bool Decode(const Code& code, vector<string>* result);
 
   const string& name() const { return name_; }
-  RIME_API bool loaded() const;
+  RIME_DLL bool loaded() const;
 
   const vector<string>& packs() const { return packs_; }
   const vector<of<Table>>& tables() const { return tables_; }
@@ -105,9 +110,7 @@ class DictionaryComponent : public Dictionary::Component {
   DictionaryComponent();
   ~DictionaryComponent() override;
   Dictionary* Create(const Ticket& ticket) override;
-  Dictionary* Create(string dict_name,
-                     string prism_name,
-                     vector<string> packs);
+  Dictionary* Create(string dict_name, string prism_name, vector<string> packs);
 
  private:
   map<string, weak<Prism>> prism_map_;

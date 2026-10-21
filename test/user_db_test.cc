@@ -14,7 +14,7 @@ using namespace rime;
 using TestDb = UserDbWrapper<TextDb>;
 
 TEST(RimeUserDbTest, AccessRecordByKey) {
-  TestDb db("user_db_test.txt", "user_db_test");
+  TestDb db(path{"user_db_test.txt"}, "user_db_test");
   if (db.Exists())
     db.Remove();
   ASSERT_FALSE(db.Exists());
@@ -41,7 +41,7 @@ TEST(RimeUserDbTest, AccessRecordByKey) {
 }
 
 TEST(RimeUserDbTest, Query) {
-  TestDb db("user_db_test.txt", "user_db_test");
+  TestDb db(path{"user_db_test.txt"}, "user_db_test");
   if (db.Exists())
     db.Remove();
   ASSERT_FALSE(db.Exists());
@@ -88,4 +88,13 @@ TEST(RimeUserDbTest, Query) {
     EXPECT_FALSE(accessor->GetNextRecord(&key, &value));
   }
   db.Close();
+}
+
+TEST(RimeUserDbValueTest, Denormal) {
+  const string denormal_entry = "c=16 d=9.88131e-324 t=1449225";
+  UserDbValue v(denormal_entry);
+  EXPECT_EQ(16, v.commits);
+  EXPECT_EQ(1449225u, v.tick);
+  EXPECT_GE(v.dee, 0.0);
+  EXPECT_FALSE(std::isnan(v.dee));
 }

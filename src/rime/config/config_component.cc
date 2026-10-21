@@ -23,6 +23,10 @@ Config::~Config() {}
 
 Config::Config(an<ConfigData> data) : ConfigItemRef(data.get()), data_(data) {}
 
+bool Config::Save() {
+  return data_->Save();
+}
+
 bool Config::LoadFromStream(std::istream& stream) {
   return data_->LoadFromStream(stream);
 }
@@ -31,12 +35,12 @@ bool Config::SaveToStream(std::ostream& stream) {
   return data_->SaveToStream(stream);
 }
 
-bool Config::LoadFromFile(const string& file_name) {
-  return data_->LoadFromFile(file_name, nullptr);
+bool Config::LoadFromFile(const path& file_path) {
+  return data_->LoadFromFile(file_path, nullptr);
 }
 
-bool Config::SaveToFile(const string& file_name) {
-  return data_->SaveToFile(file_name);
+bool Config::SaveToFile(const path& file_path) {
+  return data_->SaveToFile(file_path);
 }
 
 bool Config::IsNull(const string& path) {
@@ -142,9 +146,8 @@ void Config::SetItem(an<ConfigItem> item) {
   set_modified();
 }
 
-const ResourceType ConfigResourceProvider::kDefaultResourceType = {
-  "config", "", ".yaml"
-};
+const ResourceType ConfigResourceProvider::kDefaultResourceType = {"config", "",
+                                                                   ".yaml"};
 
 ResourceResolver* ConfigResourceProvider::CreateResourceResolver(
     const ResourceType& resource_type) {
@@ -152,8 +155,7 @@ ResourceResolver* ConfigResourceProvider::CreateResourceResolver(
 }
 
 const ResourceType DeployedConfigResourceProvider::kDefaultResourceType = {
-  "compiled_config", "", ".yaml"
-};
+    "compiled_config", "", ".yaml"};
 
 ResourceResolver* DeployedConfigResourceProvider::CreateResourceResolver(
     const ResourceType& resource_type) {
@@ -161,8 +163,7 @@ ResourceResolver* DeployedConfigResourceProvider::CreateResourceResolver(
 }
 
 const ResourceType UserConfigResourceProvider::kDefaultResourceType = {
-  "user_config", "", ".yaml"
-};
+    "user_config", "", ".yaml"};
 
 ResourceResolver* UserConfigResourceProvider::CreateResourceResolver(
     const ResourceType& resource_type) {
@@ -170,11 +171,9 @@ ResourceResolver* UserConfigResourceProvider::CreateResourceResolver(
 }
 
 ConfigComponentBase::ConfigComponentBase(ResourceResolver* resource_resolver)
-    : resource_resolver_(resource_resolver) {
-}
+    : resource_resolver_(resource_resolver) {}
 
-ConfigComponentBase::~ConfigComponentBase() {
-}
+ConfigComponentBase::~ConfigComponentBase() {}
 
 Config* ConfigComponentBase::Create(const string& file_name) {
   return new Config(GetConfigData(file_name));
@@ -196,8 +195,7 @@ an<ConfigData> ConfigComponentBase::GetConfigData(const string& file_name) {
 an<ConfigData> ConfigLoader::LoadConfig(ResourceResolver* resource_resolver,
                                         const string& config_id) {
   auto data = New<ConfigData>();
-  data->LoadFromFile(
-      resource_resolver->ResolvePath(config_id).string(), nullptr);
+  data->LoadFromFile(resource_resolver->ResolvePath(config_id), nullptr);
   data->set_auto_save(auto_save_);
   return data;
 }
@@ -214,18 +212,16 @@ template <class Container>
 struct MultiplePlugins : ConfigCompilerPlugin {
   Container& plugins;
 
-  MultiplePlugins(Container& _plugins)
-      : plugins(_plugins) {
-  }
+  MultiplePlugins(Container& _plugins) : plugins(_plugins) {}
   bool ReviewCompileOutput(ConfigCompiler* compiler,
                            an<ConfigResource> resource) override {
-    return ReviewedByAll(&ConfigCompilerPlugin::ReviewCompileOutput,
-                         compiler, resource);
+    return ReviewedByAll(&ConfigCompilerPlugin::ReviewCompileOutput, compiler,
+                         resource);
   }
   bool ReviewLinkOutput(ConfigCompiler* compiler,
                         an<ConfigResource> resource) override {
-    return ReviewedByAll(&ConfigCompilerPlugin::ReviewLinkOutput,
-                         compiler, resource);
+    return ReviewedByAll(&ConfigCompilerPlugin::ReviewLinkOutput, compiler,
+                         resource);
   }
   typedef bool (ConfigCompilerPlugin::*Reviewer)(ConfigCompiler* compiler,
                                                  an<ConfigResource> resource);
@@ -239,7 +235,7 @@ bool MultiplePlugins<Container>::ReviewedByAll(Reviewer reviewer,
                                                ConfigCompiler* compiler,
                                                an<ConfigResource> resource) {
   for (const auto& plugin : plugins) {
-    if(!((*plugin).*reviewer)(compiler, resource))
+    if (!((*plugin).*reviewer)(compiler, resource))
       return false;
   }
   return true;

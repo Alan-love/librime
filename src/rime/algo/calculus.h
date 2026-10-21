@@ -18,7 +18,7 @@ namespace rime {
 
 class Calculation {
  public:
-  using Factory = Calculation* (const vector<string>& args);
+  using Factory = Calculation*(const vector<string>& args);
 
   Calculation() = default;
   virtual ~Calculation() = default;
@@ -29,9 +29,9 @@ class Calculation {
 
 class Calculus {
  public:
-  RIME_API Calculus();
+  RIME_DLL Calculus();
   void Register(const string& token, Calculation::Factory* factory);
-  RIME_API Calculation* Parse(const string& defintion);
+  RIME_DLL Calculation* Parse(const string& definition);
 
  private:
   map<string, Calculation::Factory*> factories_;
@@ -41,7 +41,7 @@ class Calculus {
 class Transliteration : public Calculation {
  public:
   static Factory Parse;
-  bool Apply(Spelling* spelling);
+  bool Apply(Spelling* spelling) override;
 
  protected:
   map<uint32_t, uint32_t> char_map_;
@@ -51,7 +51,7 @@ class Transliteration : public Calculation {
 class Transformation : public Calculation {
  public:
   static Factory Parse;
-  bool Apply(Spelling* spelling);
+  bool Apply(Spelling* spelling) override;
 
  protected:
   boost::regex pattern_;
@@ -62,8 +62,8 @@ class Transformation : public Calculation {
 class Erasion : public Calculation {
  public:
   static Factory Parse;
-  bool Apply(Spelling* spelling);
-  bool addition() { return false; }
+  bool Apply(Spelling* spelling) override;
+  bool addition() override { return false; }
 
  protected:
   boost::regex pattern_;
@@ -73,21 +73,38 @@ class Erasion : public Calculation {
 class Derivation : public Transformation {
  public:
   static Factory Parse;
-  bool deletion() { return false; }
+  bool deletion() override { return false; }
 };
 
 // fuzz/zyx/zx/
 class Fuzzing : public Derivation {
  public:
   static Factory Parse;
-  bool Apply(Spelling* spelling);
+  bool Apply(Spelling* spelling) override;
 };
 
 // abbrev/zyx/z/
 class Abbreviation : public Derivation {
  public:
   static Factory Parse;
-  bool Apply(Spelling* spelling);
+  bool Apply(Spelling* spelling) override;
+};
+
+// derive/zyx/zxy/correction
+class Correction : public Derivation {
+ public:
+  bool Apply(Spelling* spelling) override;
+};
+
+// reorder/zyx/dedup  ("xzxy" -> "zyx")
+class Reorder : public Calculation {
+ public:
+  static Factory Parse;
+  bool Apply(Spelling* spelling) override;
+
+ protected:
+  std::u32string order_;
+  bool dedup_;
 };
 
 }  // namespace rime

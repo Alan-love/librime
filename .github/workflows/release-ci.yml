@@ -1,0 +1,80 @@
+name: Release CI
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - '[0-9]+.*'
+  workflow_dispatch:
+
+jobs:
+  linux:
+    uses: ./.github/workflows/linux-build.yml
+
+  macos:
+    uses: ./.github/workflows/macos-build.yml
+    with:
+      rime_plugins: hchunhui/librime-lua lotem/librime-octagram rime/librime-predict
+
+  windows:
+    uses: ./.github/workflows/windows-build.yml
+    with:
+      rime_plugins: hchunhui/librime-lua lotem/librime-octagram rime/librime-predict
+
+  release:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout last commit
+        uses: actions/checkout@v7
+
+      - name: Build changelog
+        if: ${{ github.ref_type == 'tag' }}
+        id: build_changelog
+        uses: mikepenz/release-changelog-builder-action@v6
+        with:
+          commitMode: true
+          configurationJson: |
+            {
+              "template": "Change log from #{{FROM_TAG}} to #{{TO_TAG}}: #{{RELEASE_DIFF}}\n#{{UNCATEGORIZED}}",
+              "pr_template": "- [#{{MERGE_SHA}}] - #{{TITLE}}"
+            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove previous nightly release
+        if: ${{ github.ref_type != 'tag' }}
+        continue-on-error: true
+        run: |
+          gh release delete --yes --cleanup-tag latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Checkout action will delete the working folder, download the artifacts after the checkout
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifact
+          merge-multiple: true
+
+      - name: Create Nightly release
+        if: ${{ github.repository == 'rime/librime' && github.ref == 'refs/heads/master' }}
+        uses: softprops/action-gh-release@v3
+        with:
+          name: "Nightly Build"
+          tag_name: latest
+          prerelease: true
+          files: |
+            artifact/*
+
+      - name: Create Stable release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          name: librime ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: ${{ steps.build_changelog.outputs.changelog }}
+          files: |
+            artifact/*

@@ -14,17 +14,13 @@ namespace rime {
 class Candidate {
  public:
   Candidate() = default;
-  Candidate(const string& type,
-            size_t start,
-            size_t end,
-            double quality = 0.)
+  Candidate(const string& type, size_t start, size_t end, double quality = 0.)
       : type_(type), start_(start), end_(end), quality_(quality) {}
   virtual ~Candidate() = default;
 
-  static an<Candidate>
-  GetGenuineCandidate(const an<Candidate>& cand);
-  static vector<of<Candidate>>
-  GetGenuineCandidates(const an<Candidate>& cand);
+  static an<Candidate> GetGenuineCandidate(const an<Candidate>& cand);
+  static vector<of<Candidate>> GetGenuineCandidates(const an<Candidate>& cand);
+  int compare(const Candidate& other);
 
   // recognized by translators in learning phase
   const string& type() const { return type_; }
@@ -55,7 +51,7 @@ class Candidate {
 using CandidateQueue = list<of<Candidate>>;
 using CandidateList = vector<of<Candidate>>;
 
-// useful implimentations
+// useful implementations
 
 class SimpleCandidate : public Candidate {
  public:
@@ -67,7 +63,9 @@ class SimpleCandidate : public Candidate {
                   const string& comment = string(),
                   const string& preedit = string())
       : Candidate(type, start, end),
-      text_(text), comment_(comment), preedit_(preedit) {}
+        text_(text),
+        comment_(comment),
+        preedit_(preedit) {}
 
   const string& text() const { return text_; }
   string comment() const { return comment_; }
@@ -88,20 +86,19 @@ class ShadowCandidate : public Candidate {
   ShadowCandidate(const an<Candidate>& item,
                   const string& type,
                   const string& text = string(),
-                  const string& comment = string())
+                  const string& comment = string(),
+                  const bool inherit_comment = true)
       : Candidate(type, item->start(), item->end(), item->quality()),
-        text_(text), comment_(comment),
-        item_(item) {}
+        text_(text),
+        comment_(comment),
+        item_(item),
+        inherit_comment_(inherit_comment) {}
 
-  const string& text() const {
-    return text_.empty() ? item_->text() : text_;
-  }
+  const string& text() const { return text_.empty() ? item_->text() : text_; }
   string comment() const {
-    return comment_.empty() ? item_->comment() : comment_;
+    return inherit_comment_ && comment_.empty() ? item_->comment() : comment_;
   }
-  string preedit() const {
-    return item_->preedit();
-  }
+  string preedit() const { return item_->preedit(); }
 
   const an<Candidate>& item() const { return item_; }
 
@@ -109,6 +106,7 @@ class ShadowCandidate : public Candidate {
   string text_;
   string comment_;
   an<Candidate> item_;
+  bool inherit_comment_;
 };
 
 class UniquifiedCandidate : public Candidate {
@@ -118,17 +116,17 @@ class UniquifiedCandidate : public Candidate {
                       const string& text = string(),
                       const string& comment = string())
       : Candidate(type, item->start(), item->end(), item->quality()),
-        text_(text), comment_(comment) {
+        text_(text),
+        comment_(comment) {
     Append(item);
   }
 
   const string& text() const {
-    return text_.empty() && !items_.empty() ?
-        items_.front()->text() : text_;
+    return text_.empty() && !items_.empty() ? items_.front()->text() : text_;
   }
   string comment() const {
-    return comment_.empty() && !items_.empty() ?
-        items_.front()->comment() : comment_;
+    return comment_.empty() && !items_.empty() ? items_.front()->comment()
+                                               : comment_;
   }
   string preedit() const {
     return !items_.empty() ? items_.front()->preedit() : string();

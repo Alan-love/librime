@@ -19,48 +19,47 @@ class DetectModifications : public DeploymentTask {
   // Unlike other tasks, its return value indicates whether modifications
   // has been detected and workspace needs update.
   bool Run(Deployer* deployer);
+
  protected:
-  vector<string> data_dirs_;
+  vector<path> data_dirs_;
 };
 
 // initialize/update installation.yaml
-class InstallationUpdate : public DeploymentTask {
+class RIME_DLL InstallationUpdate : public DeploymentTask {
  public:
   InstallationUpdate(TaskInitializer arg = TaskInitializer()) {}
   bool Run(Deployer* deployer);
 };
 
 // update distributed config files and preset schemas
-class WorkspaceUpdate : public DeploymentTask {
+class RIME_DLL WorkspaceUpdate : public DeploymentTask {
  public:
   WorkspaceUpdate(TaskInitializer arg = TaskInitializer()) {}
   bool Run(Deployer* deployer);
 
  protected:
   string GetSchemaPath(Deployer* deployer,
-                            const string& schema_id,
-                            bool prefer_shared_copy);
+                       const string& schema_id,
+                       bool prefer_shared_copy);
 };
 
 // update a specific schema, build corresponding dictionary
-class SchemaUpdate : public DeploymentTask {
+class RIME_DLL SchemaUpdate : public DeploymentTask {
  public:
-  explicit SchemaUpdate(const string& schema_file)
-      : schema_file_(schema_file) {}
+  explicit SchemaUpdate(const path& source_path) : source_path_(source_path) {}
   SchemaUpdate(TaskInitializer arg);
   bool Run(Deployer* deployer);
   void set_verbose(bool verbose) { verbose_ = verbose; }
 
  protected:
-  string schema_file_;
+  path source_path_;
   bool verbose_ = false;
 };
 
 // update a specific config file
 class ConfigFileUpdate : public DeploymentTask {
  public:
-  ConfigFileUpdate(const string& file_name,
-                   const string& version_key)
+  ConfigFileUpdate(const string& file_name, const string& version_key)
       : file_name_(file_name), version_key_(version_key) {}
   ConfigFileUpdate(TaskInitializer arg);
   bool Run(Deployer* deployer);

@@ -19,10 +19,11 @@ class Context;
 
 class Engine : public Messenger {
  public:
-  using CommitSink = signal<void (const string& commit_text)>;
+  using CommitSink = signal<void(const string& commit_text)>;
 
   virtual ~Engine();
   virtual bool ProcessKey(const KeyEvent& key_event) { return false; }
+  virtual bool ProcessSyntheticKey(const KeyEvent& key_event) { return false; }
   virtual void ApplySchema(Schema* schema) {}
   virtual void CommitText(string text) { sink_(text); }
   virtual void Compose(Context* ctx) {}
@@ -31,14 +32,10 @@ class Engine : public Messenger {
   Context* context() const { return context_.get(); }
   CommitSink& sink() { return sink_; }
 
-  Engine* active_engine() {
-    return active_engine_ ? active_engine_ : this;
-  }
-  void set_active_engine(Engine* engine = nullptr) {
-    active_engine_ = engine;
-  }
+  Engine* active_engine() { return active_engine_ ? active_engine_ : this; }
+  void set_active_engine(Engine* engine = nullptr) { active_engine_ = engine; }
 
-  RIME_API static Engine* Create();
+  RIME_DLL static Engine* Create();
 
  protected:
   Engine();

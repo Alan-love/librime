@@ -13,6 +13,7 @@
 #include <rime/processor.h>
 #include <rime/segmentor.h>
 #include <rime/translator.h>
+#include <rime/gear/shape.h>
 
 namespace rime {
 
@@ -22,10 +23,20 @@ class PunctConfig {
  public:
   void LoadConfig(Engine* engine, bool load_symbols = false);
   an<ConfigItem> GetPunctDefinition(const string key);
+
+  bool has_digit_separators() const { return !digit_separators_.empty(); }
+  bool is_digit_separator(char ch) const {
+    return digit_separators_.find(ch) != string::npos;
+  }
+  bool digit_separator_commit() const { return digit_separator_commit_; }
+
  protected:
   string shape_;
   an<ConfigMap> mapping_;
   an<ConfigMap> symbols_;
+
+  string digit_separators_ = ".:";
+  bool digit_separator_commit_ = false;
 };
 
 class Punctuator : public Processor {
@@ -34,8 +45,10 @@ class Punctuator : public Processor {
   virtual ProcessResult ProcessKeyEvent(const KeyEvent& key_event);
 
  protected:
-  bool ConfirmUniquePunct(const an<ConfigItem>& definition);
+  bool ConvertDigitSeparator(char ch);
+  bool ReconvertDigitSeparatorAsPunct(const string& key);
   bool AlternatePunct(const string& key, const an<ConfigItem>& definition);
+  bool ConfirmUniquePunct(const an<ConfigItem>& definition);
   bool AutoCommitPunct(const an<ConfigItem>& definition);
   bool PairPunct(const an<ConfigItem>& definition);
 
@@ -56,27 +69,23 @@ class PunctSegmentor : public Segmentor {
 class PunctTranslator : public Translator {
  public:
   PunctTranslator(const Ticket& ticket);
-  virtual an<Translation> Query(const string& input,
-                                        const Segment& segment);
+  virtual an<Translation> Query(const string& input, const Segment& segment);
 
  protected:
-  an<Translation>
-  TranslateUniquePunct(const string& key,
-                       const Segment& segment,
-                       const an<ConfigValue>& definition);
-  an<Translation>
-  TranslateAlternatingPunct(const string& key,
-                            const Segment& segment,
-                            const an<ConfigList>& definition);
-  an<Translation>
-  TranslateAutoCommitPunct(const string& key,
-                           const Segment& segment,
-                           const an<ConfigMap>& definition);
-  an<Translation>
-  TranslatePairedPunct(const string& key,
-                       const Segment& segment,
-                       const an<ConfigMap>& definition);
+  an<Translation> TranslateUniquePunct(const string& key,
+                                       const Segment& segment,
+                                       const an<ConfigValue>& definition);
+  an<Translation> TranslateAlternatingPunct(const string& key,
+                                            const Segment& segment,
+                                            const an<ConfigList>& definition);
+  an<Translation> TranslateAutoCommitPunct(const string& key,
+                                           const Segment& segment,
+                                           const an<ConfigMap>& definition);
+  an<Translation> TranslatePairedPunct(const string& key,
+                                       const Segment& segment,
+                                       const an<ConfigMap>& definition);
 
+  ShapeFormatter formatter_;
   PunctConfig config_;
 };
 

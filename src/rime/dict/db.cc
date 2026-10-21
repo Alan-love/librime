@@ -5,7 +5,7 @@
 // 2011-11-02 GONG Chen <chen.sst@gmail.com>
 //
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <rime/common.h>
 #include <rime/resource.h>
 #include <rime/service.h>
@@ -21,9 +21,7 @@ bool DbAccessor::MatchesPrefix(const string& key) {
 
 // DbComponentBase
 
-static const ResourceType kDbResourceType = {
-  "db", "", ""
-};
+static const ResourceType kDbResourceType = {"db", "", ""};
 
 DbComponentBase::DbComponentBase()
     : db_resource_resolver_(
@@ -31,19 +29,18 @@ DbComponentBase::DbComponentBase()
 
 DbComponentBase::~DbComponentBase() {}
 
-string DbComponentBase::DbFilePath(const string& name,
-                                   const string& extension) const {
-  return db_resource_resolver_->ResolvePath(name + extension).string();
+path DbComponentBase::DbFilePath(const string& name,
+                                 const string& extension) const {
+  return db_resource_resolver_->ResolvePath(name + extension);
 }
 
 // Db members
 
-Db::Db(const string& file_name, const string& name)
-    : name_(name),
-      file_name_(file_name) {}
+Db::Db(const path& file_path, const string& name)
+    : name_(name), file_path_(file_path) {}
 
 bool Db::Exists() const {
-  return boost::filesystem::exists(file_name());
+  return std::filesystem::exists(file_path());
 }
 
 bool Db::Remove() {
@@ -51,13 +48,13 @@ bool Db::Remove() {
     LOG(ERROR) << "attempt to remove opened db '" << name_ << "'.";
     return false;
   }
-  return boost::filesystem::remove(file_name());
+  return std::filesystem::remove(file_path());
 }
 
 bool Db::CreateMetadata() {
   LOG(INFO) << "creating metadata for db '" << name_ << "'.";
   return MetaUpdate("/db_name", name_) &&
-      MetaUpdate("/rime_version", RIME_VERSION);
+         MetaUpdate("/rime_version", RIME_VERSION);
 }
 
 }  // namespace rime

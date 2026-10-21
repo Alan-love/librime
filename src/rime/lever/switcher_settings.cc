@@ -6,22 +6,20 @@
 //
 #include <utility>
 #include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <rime/config.h>
 #include <rime/deployer.h>
 #include <rime/lever/switcher_settings.h>
 
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 namespace rime {
 
 SwitcherSettings::SwitcherSettings(Deployer* deployer)
-    : CustomSettings(deployer, "default", "Rime::SwitcherSettings") {
-}
+    : CustomSettings(deployer, "default", "Rime::SwitcherSettings") {}
 
 bool SwitcherSettings::Load() {
-  if (!CustomSettings::Load())
-    return false;
+  auto ret = CustomSettings::Load();
   available_.clear();
   selection_.clear();
   hotkeys_.clear();
@@ -29,7 +27,7 @@ bool SwitcherSettings::Load() {
   GetAvailableSchemasFromDirectory(deployer_->user_data_dir);
   GetSelectedSchemasFromConfig();
   GetHotkeysFromConfig();
-  return true;
+  return ret;
 }
 
 bool SwitcherSettings::Select(Selection selection) {
@@ -48,15 +46,14 @@ bool SwitcherSettings::SetHotkeys(const string& hotkeys) {
   return false;
 }
 
-void SwitcherSettings::GetAvailableSchemasFromDirectory(const fs::path& dir) {
+void SwitcherSettings::GetAvailableSchemasFromDirectory(const path& dir) {
   if (!fs::exists(dir) || !fs::is_directory(dir)) {
-    LOG(INFO) << "directory '" << dir.string() << "' does not exist.";
+    LOG(INFO) << "directory '" << dir << "' does not exist.";
     return;
   }
-  for (fs::directory_iterator it(dir), end;
-       it != end; ++it) {
-    string file_path(it->path().string());
-    if (boost::ends_with(file_path, ".schema.yaml")) {
+  for (fs::directory_iterator it(dir), end; it != end; ++it) {
+    path file_path(it->path());
+    if (boost::ends_with(file_path.to_utf8_string(), ".schema.yaml")) {
       Config config;
       if (config.LoadFromFile(file_path)) {
         SchemaInfo info;
@@ -88,7 +85,8 @@ void SwitcherSettings::GetAvailableSchemasFromDirectory(const fs::path& dir) {
           }
         }
         config.GetString("schema/description", &info.description);
-        info.file_path = file_path;
+        // output path in native encoding.
+        info.file_path = file_path.string();
         available_.push_back(info);
       }
     }

@@ -23,6 +23,8 @@ class Segmentor : public Class<Segmentor, const Ticket&> {
 
   virtual bool Proceed(Segmentation* segmentation) = 0;
 
+  string name_space() const { return name_space_; }
+
  protected:
   Engine* engine_;
   string name_space_;

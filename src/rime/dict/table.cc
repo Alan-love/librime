@@ -21,66 +21,35 @@ const int kTableFormatLowestCompatible = 4.0;
 const char kTableFormatPrefix[] = "Rime::Table/";
 const size_t kTableFormatPrefixLen = sizeof(kTableFormatPrefix) - 1;
 
-class TableQuery {
- public:
-  TableQuery(table::Index* index) : lv1_index_(index) {
-    Reset();
-  }
-
-  TableAccessor Access(SyllableId syllable_id,
-                       double credibility = 0.0) const;
-
-  // down to next level
-  bool Advance(SyllableId syllable_id, double credibility = 0.0);
-
-  // up one level
-  bool Backdate();
-
-  // back to root
-  void Reset();
-
-  size_t level() const { return level_; }
-
- protected:
-  size_t level_ = 0;
-  Code index_code_;
-  vector<double> credibility_;
-
- private:
-  bool Walk(SyllableId syllable_id);
-
-  table::HeadIndex* lv1_index_ = nullptr;
-  table::TrunkIndex* lv2_index_ = nullptr;
-  table::TrunkIndex* lv3_index_ = nullptr;
-  table::TailIndex* lv4_index_ = nullptr;
-};
-
 TableAccessor::TableAccessor(const Code& index_code,
                              const List<table::Entry>* list,
-                             double credibility)
+                             double credibility,
+                             double quality_len)
     : index_code_(index_code),
       entries_(list->at.get()),
       size_(list->size),
-      credibility_(credibility) {
-}
+      credibility_(credibility),
+      quality_len_(quality_len) {}
 
 TableAccessor::TableAccessor(const Code& index_code,
                              const Array<table::Entry>* array,
-                             double credibility)
+                             double credibility,
+                             double quality_len)
     : index_code_(index_code),
       entries_(array->at),
       size_(array->size),
-      credibility_(credibility) {
-}
+      credibility_(credibility),
+      quality_len_(quality_len) {}
 
 TableAccessor::TableAccessor(const Code& index_code,
                              const table::TailIndex* code_map,
-                             double credibility)
+                             double credibility,
+                             double quality_len)
     : index_code_(index_code),
       long_entries_(code_map->at),
       size_(code_map->size),
-      credibility_(credibility) {
-}
+      credibility_(credibility),
+      quality_len_(quality_len) {}
 
 bool TableAccessor::exhausted() const {
   if (entries_ || long_entries_) {
@@ -130,13 +99,18 @@ bool TableAccessor::Next() {
   return !exhausted();
 }
 
-bool TableQuery::Advance(SyllableId syllable_id, double credibility) {
+bool TableQuery::Advance(SyllableId syllable_id,
+                         double credibility,
+                         double quality_len,
+                         size_t last_pos) {
   if (!Walk(syllable_id)) {
     return false;
   }
   ++level_;
   index_code_.push_back(syllable_id);
-  credibility_.push_back(credibility_.back() + credibility);
+  credibility_.push_back(credibility_sum() + credibility);
+  quality_len_.push_back(quality_len_sum() + quality_len);
+  last_pos_.push_back(last_pos);
   return true;
 }
 
@@ -147,6 +121,8 @@ bool TableQuery::Backdate() {
   if (index_code_.size() > level_) {
     index_code_.pop_back();
     credibility_.pop_back();
+    quality_len_.pop_back();
+    last_pos_.pop_back();
   }
   return true;
 }
@@ -155,7 +131,8 @@ void TableQuery::Reset() {
   level_ = 0;
   index_code_.clear();
   credibility_.clear();
-  credibility_.push_back(0.0);
+  quality_len_.clear();
+  last_pos_.clear();
 }
 
 inline static bool node_less(const table::TrunkIndexNode& a,
@@ -174,16 +151,14 @@ static table::TrunkIndexNode* find_node(table::TrunkIndexNode* first,
 
 bool TableQuery::Walk(SyllableId syllable_id) {
   if (level_ == 0) {
-    if (!lv1_index_ ||
-        syllable_id < 0 ||
+    if (!lv1_index_ || syllable_id < 0 ||
         syllable_id >= static_cast<SyllableId>(lv1_index_->size))
       return false;
     auto node = &lv1_index_->at[syllable_id];
     if (!node->next_level)
       return false;
     lv2_index_ = &node->next_level->trunk();
-  }
-  else if (level_ == 1) {
+  } else if (level_ == 1) {
     if (!lv2_index_)
       return false;
     auto node = find_node(lv2_index_->begin(), lv2_index_->end(), syllable_id);
@@ -192,8 +167,7 @@ bool TableQuery::Walk(SyllableId syllable_id) {
     if (!node->next_level)
       return false;
     lv3_index_ = &node->next_level->trunk();
-  }
-  else if (level_ == 2) {
+  } else if (level_ == 2) {
     if (!lv3_index_)
       return false;
     auto node = find_node(lv3_index_->begin(), lv3_index_->end(), syllable_id);
@@ -202,8 +176,7 @@ bool TableQuery::Walk(SyllableId syllable_id) {
     if (!node->next_level)
       return false;
     lv4_index_ = &node->next_level->tail();
-  }
-  else {
+  } else {
     return false;
   }
   return true;
@@ -215,31 +188,30 @@ inline static Code add_syllable(Code code, SyllableId syllable_id) {
 }
 
 TableAccessor TableQuery::Access(SyllableId syllable_id,
-                                 double credibility) const {
-  credibility += credibility_.back();
+                                 double credibility,
+                                 double quality_len) const {
+  credibility += credibility_sum();
+  quality_len += quality_len_sum();
   if (level_ == 0) {
-    if (!lv1_index_ ||
-        syllable_id < 0 ||
+    if (!lv1_index_ || syllable_id < 0 ||
         syllable_id >= static_cast<SyllableId>(lv1_index_->size))
       return TableAccessor();
     auto node = &lv1_index_->at[syllable_id];
-    return TableAccessor(add_syllable(index_code_, syllable_id),
-                         &node->entries, credibility);
-  }
-  else if (level_ == 1 || level_ == 2) {
+    return TableAccessor(add_syllable(index_code_, syllable_id), &node->entries,
+                         credibility, quality_len);
+  } else if (level_ == 1 || level_ == 2) {
     auto index = (level_ == 1) ? lv2_index_ : lv3_index_;
     if (!index)
       return TableAccessor();
     auto node = find_node(index->begin(), index->end(), syllable_id);
     if (node == index->end())
       return TableAccessor();
-    return TableAccessor(add_syllable(index_code_, syllable_id),
-                         &node->entries, credibility);
-  }
-  else if (level_ == 3) {
+    return TableAccessor(add_syllable(index_code_, syllable_id), &node->entries,
+                         credibility, quality_len);
+  } else if (level_ == 3) {
     if (!lv4_index_)
       return TableAccessor();
-    return TableAccessor(index_code_, lv4_index_, credibility);
+    return TableAccessor(index_code_, lv4_index_, credibility, quality_len);
   }
   return TableAccessor();
 }
@@ -257,7 +229,8 @@ string Table::GetString(const table::StringType& x) {
   return string_table_->GetString(x.str_id());
 }
 
-bool Table::AddString(const string& src, table::StringType* dest,
+bool Table::AddString(const string& src,
+                      table::StringType* dest,
                       double weight) {
   string_table_builder_->Add(src, weight, &dest->str_id());
   return true;
@@ -289,20 +262,18 @@ bool Table::OnLoad() {
   return true;
 }
 
-Table::Table(const string& file_name) : MappedFile(file_name) {
-}
+Table::Table(const path& file_path) : MappedFile(file_path) {}
 
-Table::~Table() {
-}
+Table::~Table() {}
 
 bool Table::Load() {
-  LOG(INFO) << "loading table file: " << file_name();
+  LOG(INFO) << "loading table file: " << file_path();
 
   if (IsOpen())
     Close();
 
   if (!OpenReadOnly()) {
-    LOG(ERROR) << "Error opening table file '" << file_name() << "'.";
+    LOG(ERROR) << "Error opening table file '" << file_path() << "'.";
     return false;
   }
 
@@ -342,7 +313,7 @@ bool Table::Load() {
 }
 
 bool Table::Save() {
-  LOG(INFO) << "saving table file: " << file_name();
+  LOG(INFO) << "saving table file: " << file_path();
 
   if (!index_) {
     LOG(ERROR) << "the table has not been constructed!";
@@ -356,24 +327,27 @@ uint32_t Table::dict_file_checksum() const {
   return metadata_ ? metadata_->dict_file_checksum : 0;
 }
 
-bool Table::Build(const Syllabary& syllabary, const Vocabulary& vocabulary,
-                  size_t num_entries, uint32_t dict_file_checksum) {
+bool Table::Build(const Syllabary& syllabary,
+                  const Vocabulary& vocabulary,
+                  size_t num_entries,
+                  uint32_t dict_file_checksum) {
   const size_t kReservedSize = 4096;
   size_t num_syllables = syllabary.size();
-  size_t estimated_file_size = kReservedSize + 32 * num_syllables + 64 * num_entries;
+  size_t estimated_file_size =
+      kReservedSize + 32 * num_syllables + 64 * num_entries;
   LOG(INFO) << "building table.";
   LOG(INFO) << "num syllables: " << num_syllables;
   LOG(INFO) << "num entries: " << num_entries;
   LOG(INFO) << "estimated file size: " << estimated_file_size;
   if (!Create(estimated_file_size)) {
-    LOG(ERROR) << "Error creating table file '" << file_name() << "'.";
+    LOG(ERROR) << "Error creating table file '" << file_path() << "'.";
     return false;
   }
 
   LOG(INFO) << "creating metadata.";
   metadata_ = Allocate<table::Metadata>();
   if (!metadata_) {
-    LOG(ERROR) << "Error creating metadata in file '" << file_name() << "'.";
+    LOG(ERROR) << "Error creating metadata in file '" << file_path() << "'.";
     return false;
   }
   metadata_->dict_file_checksum = dict_file_checksum;
@@ -389,8 +363,7 @@ bool Table::Build(const Syllabary& syllabary, const Vocabulary& vocabulary,
   if (!syllabary_) {
     LOG(ERROR) << "Error creating syllabary.";
     return false;
-  }
-  else {
+  } else {
     size_t i = 0;
     for (const string& syllable : syllabary) {
       AddString(syllable, &syllabary_->at[i++], 0.0);
@@ -418,8 +391,8 @@ bool Table::Build(const Syllabary& syllabary, const Vocabulary& vocabulary,
 
 table::Index* Table::BuildIndex(const Vocabulary& vocabulary,
                                 size_t num_syllables) {
-  return reinterpret_cast<table::Index*>(BuildHeadIndex(vocabulary,
-                                                        num_syllables));
+  return reinterpret_cast<table::Index*>(
+      BuildHeadIndex(vocabulary, num_syllables));
 }
 
 table::HeadIndex* Table::BuildHeadIndex(const Vocabulary& vocabulary,
@@ -433,7 +406,7 @@ table::HeadIndex* Table::BuildHeadIndex(const Vocabulary& vocabulary,
     auto& node(index->at[syllable_id]);
     const auto& entries(v.second.entries);
     if (!BuildEntryList(entries, &node.entries)) {
-        return NULL;
+      return NULL;
     }
     if (v.second.next_level) {
       Code code;
@@ -461,7 +434,7 @@ table::TrunkIndex* Table::BuildTrunkIndex(const Code& prefix,
     node.key = syllable_id;
     const auto& entries(v.second.entries);
     if (!BuildEntryList(entries, &node.entries)) {
-        return NULL;
+      return NULL;
     }
     if (v.second.next_level) {
       Code code(prefix);
@@ -473,8 +446,7 @@ table::TrunkIndex* Table::BuildTrunkIndex(const Code& prefix,
         }
         node.next_level =
             reinterpret_cast<table::PhraseIndex*>(next_level_index);
-      }
-      else {
+      } else {
         auto tail_index = BuildTailIndex(code, *v.second.next_level);
         if (!tail_index) {
           return NULL;
@@ -510,15 +482,14 @@ table::TailIndex* Table::BuildTailIndex(const Code& prefix,
       LOG(ERROR) << "Error creating code sequence; file size: " << file_size();
       return NULL;
     }
-    std::copy(src->code.begin() + Code::kIndexCodeMaxLength,
-              src->code.end(),
+    std::copy(src->code.begin() + Code::kIndexCodeMaxLength, src->code.end(),
               dest.extra_code.begin());
     BuildEntry(*src, &dest.entry);
   }
   return index;
 }
 
-Array<table::Entry>* Table::BuildEntryArray(const DictEntryList& entries) {
+Array<table::Entry>* Table::BuildEntryArray(const ShortDictEntryList& entries) {
   auto array = CreateArray<table::Entry>(entries.size());
   if (!array) {
     return NULL;
@@ -531,7 +502,7 @@ Array<table::Entry>* Table::BuildEntryArray(const DictEntryList& entries) {
   return array;
 }
 
-bool Table::BuildEntryList(const DictEntryList& src,
+bool Table::BuildEntryList(const ShortDictEntryList& src,
                            List<table::Entry>* dest) {
   if (!dest)
     return false;
@@ -549,7 +520,7 @@ bool Table::BuildEntryList(const DictEntryList& src,
   return true;
 }
 
-bool Table::BuildEntry(const DictEntry& dict_entry, table::Entry* entry) {
+bool Table::BuildEntry(const ShortDictEntry& dict_entry, table::Entry* entry) {
   if (!entry)
     return false;
   if (!AddString(dict_entry.text, &entry->text, dict_entry.weight)) {
@@ -570,8 +541,7 @@ bool Table::GetSyllabary(Syllabary* result) {
   return true;
 }
 string Table::GetSyllableById(SyllableId syllable_id) {
-  if (!syllabary_ ||
-      syllable_id < 0 ||
+  if (!syllabary_ || syllable_id < 0 ||
       syllable_id >= static_cast<SyllableId>(syllabary_->size))
     return string();
   return GetString(syllabary_->at[syllable_id]);
@@ -595,11 +565,13 @@ TableAccessor Table::QueryPhrases(const Code& code) {
   return query.Access(-1);
 }
 
-bool Table::Query(const SyllableGraph& syll_graph, size_t start_pos,
+// log(0.05) ≈ -3.0
+const double kPenaltyForAmbiguousSyllable = -2.995732274;
+
+bool Table::Query(const SyllableGraph& syll_graph,
+                  size_t start_pos,
                   TableQueryResult* result) {
-  if (!result ||
-      !index_ ||
-      start_pos >= syll_graph.interpreted_length)
+  if (!result || !index_ || start_pos >= syll_graph.interpreted_length)
     return false;
   result->clear();
   std::queue<pair<size_t, TableQuery>> q;
@@ -622,14 +594,32 @@ bool Table::Query(const SyllableGraph& syll_graph, size_t start_pos,
     }
     for (const auto& spellings : index->second) {
       SyllableId syll_id = spellings.first;
-      TableAccessor accessor(query.Access(syll_id));
       for (auto props : spellings.second) {
         size_t end_pos = props->end_pos;
+
+        double penalty = 0.0;
+        if (false) {
+          size_t last_pos = query.last_pos();
+          if (props->ambiguous_source_positions.count(last_pos)) {
+            penalty = kPenaltyForAmbiguousSyllable;
+            DLOG(INFO) << "conditional penalty applied: ambiguous path ["
+                       << last_pos << ", " << end_pos << ")";
+          }
+        }
+        double next_credibility = props->credibility + penalty;
+
+        // 全碼匹配長度積分
+        bool is_normal_spelling = props->type == kNormalSpelling;
+        double delta_quality_len =
+            (is_normal_spelling ? 1.0 : 0.0) * (end_pos - current_pos);
+        TableAccessor accessor =
+            query.Access(syll_id, next_credibility, delta_quality_len);
         if (!accessor.exhausted()) {
           (*result)[end_pos].push_back(accessor);
         }
         if (end_pos < syll_graph.interpreted_length &&
-            query.Advance(syll_id, props->credibility)) {
+            query.Advance(syll_id, next_credibility, delta_quality_len,
+                          current_pos)) {
           q.push({end_pos, query});
           query.Backdate();
         }

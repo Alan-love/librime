@@ -1,41 +1,76 @@
 RIME_ROOT ?= $(CURDIR)
 
+RIME_SOURCE_PATH = plugins sample src test tools
+
+OS_NAME = $(shell uname)
+ifdef BOOST_ROOT
+CMAKE_BOOST_OPTIONS = -DBoost_NO_BOOST_CMAKE=TRUE \
+	-DBOOST_ROOT="$(BOOST_ROOT)"
+endif
+
+ifeq ($(OS_NAME),Darwin) # for macOS
+prefix ?= $(RIME_ROOT)/dist
+
+# https://cmake.org/cmake/help/latest/variable/CMAKE_OSX_SYSROOT.html
+export SDKROOT ?= $(shell xcrun --sdk macosx --show-sdk-path)
+
+# https://cmake.org/cmake/help/latest/envvar/MACOSX_DEPLOYMENT_TARGET.html
+export MACOSX_DEPLOYMENT_TARGET ?= 10.15
+
+ifdef BUILD_UNIVERSAL
+# https://cmake.org/cmake/help/latest/envvar/CMAKE_OSX_ARCHITECTURES.html
+export CMAKE_OSX_ARCHITECTURES = arm64;x86_64
+endif
+else ifeq ($(shell test -n "$$PREFIX" && echo "$$PREFIX" | grep -q "/data/data/com.termux" && echo "termux"),termux)
+prefix ?= $(PREFIX)
+else ifeq ($(OS_NAME),FreeBSD)
+prefix ?= $(DESTDIR)/usr/local
+else ifeq ($(OS_NAME),OpenBSD)
+prefix ?= $(DESTDIR)/usr/local
+else # for Linux
 prefix ?= $(DESTDIR)/usr
+endif
+
+ifndef NOPARALLEL
+  MAKEFLAGS += -j$(shell expr $$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || getconf NPROCESSORS_ONLN 2>/dev/null || echo 8) + 1)
+endif
 
 debug install-debug uninstall-debug test-debug: build ?= debug
 build ?= build
 
-.PHONY: all thirdparty xcode clean \
-librime librime-static install-librime uninstall-librime \
-release debug test install uninstall install-debug uninstall-debug
+.PHONY: all deps clean \
+librime librime-static \
+release debug test install uninstall \
+install-debug uninstall-debug
 
 all: release
 
-thirdparty:
-	make -f thirdparty.mk
+clang-format-lint:
+	clang-format --version
+	find ${RIME_SOURCE_PATH} \! -path 'plugins/*/*' -a \( -name '*.cc' -o -name '*.h' \) | \
+	xargs clang-format -Werror --dry-run || { echo Please lint your code by '"'"make clang-format-apply"'"'.; false; }
 
-thirdparty/%:
-	make -f thirdparty.mk $(@:thirdparty/%=%)
+clang-format-apply:
+	find ${RIME_SOURCE_PATH} \! -path 'plugins/*/*' -a \( -name '*.cc' -o -name '*.h' \) | xargs clang-format --verbose -i
 
-xcode:
-	make -f xcode.mk
+deps:
+	$(MAKE) -f deps.mk
 
-xcode/%:
-	make -f xcode.mk $(@:xcode/%=%)
+deps/%:
+	$(MAKE) -f deps.mk $(@:deps/%=%)
 
 clean:
-	rm -Rf build debug
+	rm -r $(build) || true
 
 librime: release
-install-librime: install
-uninstall-librime: uninstall
 
 librime-static:
 	cmake . -B$(build) \
 	-DCMAKE_INSTALL_PREFIX=$(prefix) \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DBUILD_STATIC=ON \
-	-DBUILD_SHARED_LIBS=OFF
+	-DBUILD_SHARED_LIBS=OFF \
+	$(CMAKE_BOOST_OPTIONS)
 	cmake --build $(build)
 
 release:
@@ -43,7 +78,8 @@ release:
 	-DCMAKE_INSTALL_PREFIX=$(prefix) \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DBUILD_MERGED_PLUGINS=OFF \
-	-DENABLE_EXTERNAL_PLUGINS=ON
+	-DENABLE_EXTERNAL_PLUGINS=ON \
+	$(CMAKE_BOOST_OPTIONS)
 	cmake --build $(build)
 
 merged-plugins:
@@ -51,7 +87,8 @@ merged-plugins:
 	-DCMAKE_INSTALL_PREFIX=$(prefix) \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DBUILD_MERGED_PLUGINS=ON \
-	-DENABLE_EXTERNAL_PLUGINS=OFF
+	-DENABLE_EXTERNAL_PLUGINS=OFF \
+	$(CMAKE_BOOST_OPTIONS)
 	cmake --build $(build)
 
 debug:
@@ -59,7 +96,9 @@ debug:
 	-DCMAKE_INSTALL_PREFIX=$(prefix) \
 	-DCMAKE_BUILD_TYPE=Debug \
 	-DBUILD_MERGED_PLUGINS=OFF \
-	-DENABLE_EXTERNAL_PLUGINS=ON
+	-DALSO_LOG_TO_STDERR=ON \
+	-DENABLE_EXTERNAL_PLUGINS=ON \
+	$(CMAKE_BOOST_OPTIONS)
 	cmake --build $(build)
 
 install:
@@ -69,13 +108,13 @@ install-debug:
 	cmake --build $(build) --target install
 
 uninstall:
-	cmake --build $(build) --target uninstall
+	cmake --build $(build) --target remove
 
 uninstall-debug:
-	cmake --build $(build) --target uninstall
+	cmake --build $(build) --target remove
 
 test: release
-	(cd $(build)/test; ./rime_test)
+	(cd $(build); ctest --output-on-failure)
 
 test-debug: debug
-	(cd $(build)/test; ./rime_test)
+	(cd $(build); ctest --output-on-failure)

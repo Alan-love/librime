@@ -26,7 +26,9 @@ class Translator : public Class<Translator, const Ticket&> {
   virtual ~Translator() = default;
 
   virtual an<Translation> Query(const string& input,
-                                        const Segment& segment) = 0;
+                                const Segment& segment) = 0;
+
+  string name_space() const { return name_space_; }
 
  protected:
   Engine* engine_;

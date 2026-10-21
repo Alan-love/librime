@@ -5,7 +5,6 @@
 // 2014-12-04 Chen Gong <chen.sst@gmail.com>
 //
 
-#include <boost/filesystem.hpp>
 #include <leveldb/db.h>
 #include <leveldb/write_batch.h>
 #include <rime/common.h>
@@ -26,21 +25,13 @@ struct LevelDbCursor {
     iterator = db->NewIterator(options);
   }
 
-  bool IsValid() const {
-    return iterator && iterator->Valid();
-  }
+  bool IsValid() const { return iterator && iterator->Valid(); }
 
-  string GetKey() const {
-    return iterator->key().ToString();
-  }
+  string GetKey() const { return iterator->key().ToString(); }
 
-  string GetValue() const {
-    return iterator->value().ToString();
-  }
+  string GetValue() const { return iterator->value().ToString(); }
 
-  void Next() {
-    iterator->Next();
-  }
+  void Next() { iterator->Next(); }
 
   bool Jump(const string& key) {
     if (!iterator) {
@@ -60,10 +51,10 @@ struct LevelDbWrapper {
   leveldb::DB* ptr = nullptr;
   leveldb::WriteBatch batch;
 
-  leveldb::Status Open(const string& file_name, bool readonly) {
+  leveldb::Status Open(const path& file_path, bool readonly) {
     leveldb::Options options;
     options.create_if_missing = !readonly;
-    return leveldb::DB::Open(options, file_name, &ptr);
+    return leveldb::DB::Open(options, file_path.string(), &ptr);
   }
 
   void Release() {
@@ -71,9 +62,7 @@ struct LevelDbWrapper {
     ptr = nullptr;
   }
 
-  LevelDbCursor* CreateCursor() {
-    return new LevelDbCursor(ptr);
-  }
+  LevelDbCursor* CreateCursor() { return new LevelDbCursor(ptr); }
 
   bool Fetch(const string& key, string* value) {
     auto status = ptr->Get(leveldb::ReadOptions(), key, value);
@@ -98,25 +87,21 @@ struct LevelDbWrapper {
     return status.ok();
   }
 
-  void ClearBatch() {
-    batch.Clear();
-  }
+  void ClearBatch() { batch.Clear(); }
 
   bool CommitBatch() {
     auto status = ptr->Write(leveldb::WriteOptions(), &batch);
     return status.ok();
   }
-
 };
 
-// LevelDbAccessor memebers
+// LevelDbAccessor members
 
-LevelDbAccessor::LevelDbAccessor() {
-}
+LevelDbAccessor::LevelDbAccessor() {}
 
-LevelDbAccessor::LevelDbAccessor(LevelDbCursor* cursor,
-                                 const string& prefix)
-    : DbAccessor(prefix), cursor_(cursor),
+LevelDbAccessor::LevelDbAccessor(LevelDbCursor* cursor, const string& prefix)
+    : DbAccessor(prefix),
+      cursor_(cursor),
       is_metadata_query_(prefix == kMetaCharacter) {
   Reset();
 }
@@ -154,12 +139,10 @@ bool LevelDbAccessor::exhausted() {
 
 // LevelDb members
 
-LevelDb::LevelDb(const string& file_name,
+LevelDb::LevelDb(const path& file_path,
                  const string& db_name,
                  const string& db_type)
-    : Db(file_name, db_name),
-      db_type_(db_type) {
-}
+    : Db(file_path, db_name), db_type_(db_type) {}
 
 LevelDb::~LevelDb() {
   if (loaded())
@@ -207,7 +190,7 @@ bool LevelDb::Erase(const string& key) {
   return db_->Erase(key, in_transaction());
 }
 
-bool LevelDb::Backup(const string& snapshot_file) {
+bool LevelDb::Backup(const path& snapshot_file) {
   if (!loaded())
     return false;
   LOG(INFO) << "backing up db '" << name() << "' to " << snapshot_file;
@@ -220,21 +203,21 @@ bool LevelDb::Backup(const string& snapshot_file) {
   return success;
 }
 
-bool LevelDb::Restore(const string& snapshot_file) {
+bool LevelDb::Restore(const path& snapshot_file) {
   if (!loaded() || readonly())
     return false;
   // TODO(chen): suppose we only use this method for user dbs.
   bool success = UserDbHelper(this).UniformRestore(snapshot_file);
   if (!success) {
-    LOG(ERROR) << "failed to restore db '" << name()
-               << "' from '" << snapshot_file << "'.";
+    LOG(ERROR) << "failed to restore db '" << name() << "' from '"
+               << snapshot_file << "'.";
   }
   return success;
 }
 
 bool LevelDb::Recover() {
   LOG(INFO) << "trying to recover db '" << name() << "'.";
-  auto status = leveldb::RepairDB(file_name(), leveldb::Options());
+  auto status = leveldb::RepairDB(file_path().string(), leveldb::Options());
   if (status.ok()) {
     LOG(INFO) << "repair finished.";
     return true;
@@ -248,7 +231,7 @@ bool LevelDb::Remove() {
     LOG(ERROR) << "attempt to remove opened db '" << name() << "'.";
     return false;
   }
-  auto status = leveldb::DestroyDB(file_name(), leveldb::Options());
+  auto status = leveldb::DestroyDB(file_path().string(), leveldb::Options());
   if (!status.ok()) {
     LOG(ERROR) << "Error removing db '" << name() << "': " << status.ToString();
     return false;
@@ -261,7 +244,7 @@ bool LevelDb::Open() {
     return false;
   Initialize();
   readonly_ = false;
-  auto status = db_->Open(file_name(), readonly_);
+  auto status = db_->Open(file_path(), readonly_);
   loaded_ = status.ok();
 
   if (loaded_) {
@@ -272,8 +255,7 @@ bool LevelDb::Open() {
         Close();
       }
     }
-  }
-  else {
+  } else {
     LOG(ERROR) << "Error opening db '" << name() << "': " << status.ToString();
   }
   return loaded_;
@@ -284,7 +266,7 @@ bool LevelDb::OpenReadOnly() {
     return false;
   Initialize();
   readonly_ = true;
-  auto status = db_->Open(file_name(), readonly_);
+  auto status = db_->Open(file_path(), readonly_);
   loaded_ = status.ok();
 
   if (!loaded_) {
@@ -307,8 +289,7 @@ bool LevelDb::Close() {
 }
 
 bool LevelDb::CreateMetadata() {
-  return Db::CreateMetadata() &&
-      MetaUpdate("/db_type", db_type_);
+  return Db::CreateMetadata() && MetaUpdate("/db_type", db_type_);
 }
 
 bool LevelDb::MetaFetch(const string& key, string* value) {
@@ -345,14 +326,13 @@ bool LevelDb::CommitTransaction() {
 }
 
 template <>
-string UserDbComponent<LevelDb>::extension() const {
+RIME_DLL string UserDbComponent<LevelDb>::extension() const {
   return ".userdb";
 }
 
 template <>
-UserDbWrapper<LevelDb>::UserDbWrapper(const string& file_name,
-                                      const string& db_name)
-    : LevelDb(file_name, db_name, "userdb") {
-}
+RIME_DLL UserDbWrapper<LevelDb>::UserDbWrapper(const path& file_path,
+                                               const string& db_name)
+    : LevelDb(file_path, db_name, "userdb") {}
 
 }  // namespace rime

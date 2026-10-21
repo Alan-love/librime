@@ -23,8 +23,10 @@ struct RawDictEntry {
 
 // code -> weight
 using WeightMap = map<string, double>;
-// word -> { code -> weight }
-using WordMap = map<string, WeightMap>;
+// word -> [ { code, weight } ]
+// For the sake of memory usage, don't use word -> { code -> weight } as there
+// may be many words, but may not be many representations for a word
+using WordMap = hash_map<string, vector<pair<string, double>>>;
 // [ (word, weight), ... ]
 using EncodeQueue = std::queue<pair<string, string>>;
 
@@ -35,7 +37,7 @@ class EntryCollector : public PhraseCollector {
  public:
   Syllabary syllabary;
   bool build_syllabary = true;
-  vector<RawDictEntry> entries;
+  vector<of<RawDictEntry>> entries;
   size_t num_entries = 0;
   ReverseLookupTable stems;
 
@@ -45,20 +47,20 @@ class EntryCollector : public PhraseCollector {
   virtual ~EntryCollector();
 
   void Configure(DictSettings* settings);
-  void Collect(const vector<string>& dict_files);
+  void Collect(const vector<path>& dict_files);
 
   // export contents of table and prism to text files
-  void Dump(const string& file_name) const;
+  void Dump(const path& file_path) const;
 
-  void CreateEntry(const string &word,
-                   const string &code_str,
-                   const string &weight_str);
-  bool TranslateWord(const string& word,
-                     vector<string>* code);
+  void CreateEntry(const string& word,
+                   const string& code_str,
+                   const string& weight_str);
+  bool TranslateWord(const string& word, vector<string>* code);
+
  protected:
   void LoadPresetVocabulary(DictSettings* settings);
   // call Collect() multiple times for all required tables
-  void Collect(const string &dict_file);
+  void Collect(const path& dict_file);
   // encode all collected entries
   void Finish();
 
@@ -66,9 +68,13 @@ class EntryCollector : public PhraseCollector {
   the<PresetVocabulary> preset_vocabulary;
   the<Encoder> encoder;
   EncodeQueue encode_queue;
-  set<string/* word */> collection;
+  set<string /* word */> collection;
   WordMap words;
   WeightMap total_weight;
+
+ private:
+  string current_dict_file;
+  size_t line_number;
 };
 
 }  // namespace rime

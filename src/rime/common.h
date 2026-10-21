@@ -9,6 +9,7 @@
 
 #include <rime/build_config.h>
 
+#include <filesystem>
 #include <functional>
 #include <list>
 #include <map>
@@ -16,21 +17,15 @@
 #include <set>
 #include <string>
 #include <utility>
-#include <unordered_map>
-#include <unordered_set>
-#include <utility>
 #include <vector>
-#include <boost/optional.hpp>
+#include <deque>
 #define BOOST_BIND_NO_PLACEHOLDERS
-#ifdef RIME_BOOST_SIGNALS2
 #include <boost/signals2/connection.hpp>
 #include <boost/signals2/signal.hpp>
-#else
-#include <boost/signals.hpp>
-#endif
+#include <boost/unordered_map.hpp>
+#include <boost/unordered_set.hpp>
 
 #ifdef RIME_ENABLE_LOGGING
-#define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
 #else
 #include "no_logging.h"
@@ -43,6 +38,7 @@
 
 namespace rime {
 
+using std::deque;
 using std::function;
 using std::list;
 using std::make_pair;
@@ -52,12 +48,11 @@ using std::pair;
 using std::set;
 using std::string;
 using std::vector;
-using boost::optional;
 
 template <class Key, class T>
-using hash_map = std::unordered_map<Key, T>;
+using hash_map = boost::unordered_map<Key, T>;
 template <class T>
-using hash_set = std::unordered_set<T>;
+using hash_set = boost::unordered_set<T>;
 
 template <class T>
 using the = std::unique_ptr<T>;
@@ -83,13 +78,83 @@ inline an<T> New(Args&&... args) {
   return std::make_shared<T>(std::forward<Args>(args)...);
 }
 
-#ifdef RIME_BOOST_SIGNALS2
 using boost::signals2::connection;
 using boost::signals2::signal;
+
+class path : public std::filesystem::path {
+  using fs_path = std::filesystem::path;
+
+ public:
+  path() : fs_path() {}
+  path(const fs_path& p) : fs_path(p) {}
+  path(fs_path&& p) : fs_path(std::move(p)) {}
+#ifdef _WIN32
+  // convert utf-8 string to native encoding path.
+  explicit path(const std::string& utf8_path)
+      : fs_path(std::filesystem::u8path(utf8_path)) {}
+  explicit path(const char* utf8_path)
+      : fs_path(std::filesystem::u8path(utf8_path)) {}
 #else
-using boost::signals::connection;
-using boost::signal;
+  // disable implicit conversion from string to path for development purpose.
+  explicit path(const std::string& utf8_path) : fs_path(utf8_path) {}
+  explicit path(const char* utf8_path) : fs_path(utf8_path) {}
 #endif
+
+  path& operator/=(const path& p) { return *this = fs_path::operator/=(p); }
+  path& operator/=(const fs_path& p) { return *this = fs_path::operator/=(p); }
+  // convert UTF-8 encoded string to native encoding, then append.
+  path& operator/=(const std::string& p) { return *this /= path(p); }
+  path& operator/=(const char* p) { return *this /= path(p); }
+
+  path stem() const { return path(fs_path::stem()); }
+  path filename() const { return path(fs_path::filename()); }
+  path extension() const { return path(fs_path::extension()); }
+  // return UTF-8 encoded std::string
+  std::string to_utf8_string() const {
+#if __cplusplus >= 202002L
+    const auto u8s = this->u8string();
+    return std::string(u8s.begin(), u8s.end());
+#else
+    return this->u8string();
+#endif
+  }
+  // return UTF-8 encoded std::string of generic format
+  std::string generic_to_utf8_string() const {
+#if __cplusplus >= 202002L
+    const auto u8s = this->generic_u8string();
+    return std::string(u8s.begin(), u8s.end());
+#else
+    return this->generic_u8string();
+#endif
+  }
+  friend path operator/(const path& lhs, const path& rhs) {
+    return path(lhs) /= rhs;
+  }
+  friend path operator/(const path& lhs, const fs_path& rhs) {
+    return path(lhs) /= rhs;
+  }
+  friend path operator/(const fs_path& lhs, const path& rhs) {
+    return path(lhs) /= rhs;
+  }
+  // convert UTF-8 encoded string to native encoding, then append.
+  friend path operator/(const path& lhs, const std::string& rhs) {
+    return path(lhs) /= path(rhs);
+  }
+  friend path operator/(const path& lhs, const char* rhs) {
+    return path(lhs) /= path(rhs);
+  }
+  friend path operator/(const fs_path& lhs, const std::string& rhs) {
+    return path(lhs) /= path(rhs);
+  }
+  friend path operator/(const fs_path& lhs, const char* rhs) {
+    return path(lhs) /= path(rhs);
+  }
+#ifdef RIME_ENABLE_LOGGING
+  friend std::ostream& operator<<(std::ostream& os, const path& p) {
+    return os << p.to_utf8_string();
+  }
+#endif
+};
 
 }  // namespace rime
 

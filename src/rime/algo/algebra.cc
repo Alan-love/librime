@@ -25,39 +25,26 @@ void Script::Merge(const string& s,
   vector<Spelling>& m((*this)[s]);
   for (const Spelling& x : v) {
     Spelling y(x);
-    SpellingProperties& yy(y.properties);
-    {
-      if (sp.type > yy.type)
-        yy.type = sp.type;
-      yy.credibility += sp.credibility;
-      if (!sp.tips.empty())
-        yy.tips = sp.tips;
-    }
+    // 疊加運算結果
+    y.properties.Compose(sp);
     auto e = std::find(m.begin(), m.end(), x);
     if (e == m.end()) {
       m.push_back(y);
-    }
-    else {
-      SpellingProperties& zz(e->properties);
-      if (yy.type < zz.type)
-        zz.type = yy.type;
-      if (yy.credibility > zz.credibility)
-        zz.credibility = yy.credibility;
-      zz.tips.clear();
+    } else {
+      // 合併屬性
+      e->properties.Update(y.properties);
     }
   }
 }
 
-void Script::Dump(const string& file_name) const {
-  std::ofstream out(file_name.c_str());
+void Script::Dump(const path& file_path) const {
+  std::ofstream out(file_path.c_str());
   for (const value_type& v : *this) {
     bool first = true;
     for (const Spelling& s : v.second) {
-      out << (first ? v.first : "") << '\t'
-          << s.str << '\t'
-          << "-ac?!"[s.properties.type] << '\t'
-          << s.properties.credibility << '\t'
-          << s.properties.tips << std::endl;
+      out << (first ? v.first : "") << '\t' << s.str << '\t'
+          << "-ac?!"[s.properties.type] << '\t' << s.properties.credibility
+          << '\t' << s.properties.tips << std::endl;
       first = false;
     }
   }
@@ -65,7 +52,8 @@ void Script::Dump(const string& file_name) const {
 }
 
 bool Projection::Load(an<ConfigList> settings) {
-  if (!settings) return false;
+  if (!settings)
+    return false;
   calculation_.clear();
   Calculus calc;
   bool success = true;
@@ -76,12 +64,11 @@ bool Projection::Load(an<ConfigList> settings) {
       success = false;
       break;
     }
-    const string &formula(v->str());
+    const string& formula(v->str());
     an<Calculation> x;
     try {
       x.reset(calc.Parse(formula));
-    }
-    catch (boost::regex_error& e) {
+    } catch (boost::regex_error& e) {
       LOG(ERROR) << "Error parsing formula '" << formula << "': " << e.what();
     }
     if (!x) {
@@ -107,8 +94,7 @@ bool Projection::Apply(string* value) {
     try {
       if (x->Apply(&s))
         modified = true;
-    }
-    catch (std::runtime_error& e) {
+    } catch (std::runtime_error& e) {
       LOG(ERROR) << "Error applying calculation: " << e.what();
       return false;
     }
@@ -132,8 +118,7 @@ bool Projection::Apply(Script* value) {
       bool applied = false;
       try {
         applied = x->Apply(&s);
-      }
-      catch (std::runtime_error& e) {
+      } catch (std::runtime_error& e) {
         LOG(ERROR) << "Error applying calculation: " << e.what();
         return false;
       }
@@ -145,8 +130,7 @@ bool Projection::Apply(Script* value) {
         if (x->addition() && !s.str.empty()) {
           temp.Merge(s.str, s.properties, v.second);
         }
-      }
-      else {
+      } else {
         temp.Merge(v.first, SpellingProperties(), v.second);
       }
     }

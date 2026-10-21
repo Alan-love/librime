@@ -4,7 +4,7 @@
 //
 // 2011-07-05 GONG Chen <chen.sst@gmail.com>
 //
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <rime/algo/syllabifier.h>
 #include <rime/common.h>
 #include <rime/dict/dictionary.h>
@@ -25,16 +25,45 @@ struct Chunk {
   size_t size = 0;
   size_t cursor = 0;
   string remaining_code;  // for predictive queries
+  size_t matching_code_size = 0;
   double credibility = 0.0;
+  double quality_len = 0.0;
 
   Chunk() = default;
-  Chunk(Table* t, const Code& c, const table::Entry* e, double cr = 0.0)
-      : table(t), code(c), entries(e), size(1), cursor(0), credibility(cr) {}
-  Chunk(Table* t, const TableAccessor& a, double cr = 0.0)
-      : Chunk(t, a, string(), cr) {}
-  Chunk(Table* t, const TableAccessor& a, const string& r, double cr = 0.0)
-      : table(t), code(a.index_code()), entries(a.entry()),
-        size(a.remaining()), cursor(0), remaining_code(r), credibility(cr) {}
+  Chunk(Table* t,
+        const Code& c,
+        const table::Entry* e,
+        size_t m,
+        double cr = 0.0,
+        double q = 0.0)
+      : table(t),
+        code(c),
+        entries(e),
+        size(1),
+        cursor(0),
+        matching_code_size(m),
+        credibility(cr),
+        quality_len(q) {}
+  Chunk(Table* t, const TableAccessor& a, double cr = 0.0, double q = 0.0)
+      : Chunk(t, a, string(), cr, q) {}
+  Chunk(Table* t,
+        const TableAccessor& a,
+        const string& r,
+        double cr = 0.0,
+        double q = 0.0)
+      : table(t),
+        code(a.index_code()),
+        entries(a.entry()),
+        size(a.remaining()),
+        cursor(0),
+        remaining_code(r),
+        matching_code_size(a.index_code().size()),
+        credibility(cr),
+        quality_len(q) {}
+
+  bool is_exact_match() const { return matching_code_size == code.size(); }
+
+  bool is_predictive_match() const { return matching_code_size < code.size(); }
 };
 
 struct QueryResult {
@@ -42,34 +71,53 @@ struct QueryResult {
 };
 
 bool compare_chunk_by_head_element(const Chunk& a, const Chunk& b) {
-  if (!a.entries || a.cursor >= a.size) return false;
-  if (!b.entries || b.cursor >= b.size) return true;
+  if (!a.entries || a.cursor >= a.size)
+    return false;
+  if (!b.entries || b.cursor >= b.size)
+    return true;
+  if (a.is_exact_match() != b.is_exact_match())
+    return a.is_exact_match() > b.is_exact_match();
   if (a.remaining_code.length() != b.remaining_code.length())
     return a.remaining_code.length() < b.remaining_code.length();
   return a.credibility + a.entries[a.cursor].weight >
          b.credibility + b.entries[b.cursor].weight;  // by weight desc
 }
 
-size_t match_extra_code(const table::Code* extra_code, size_t depth,
-                        const SyllableGraph& syll_graph, size_t current_pos) {
+struct CodeMatch {
+  bool success;
+  size_t depth;
+  size_t end_pos;
+};
+
+CodeMatch match_extra_code(const table::Code* extra_code,
+                           size_t depth,
+                           const SyllableGraph& syll_graph,
+                           size_t current_pos,
+                           bool predict_word) {
+  const CodeMatch kFailed{false, 0, 0};
   if (!extra_code || depth >= extra_code->size)
-    return current_pos;  // success
-  if (current_pos >= syll_graph.interpreted_length)
-    return 0;  // failure (possibly success for completion in the future)
+    return {true, depth, current_pos};
+  if (current_pos >= syll_graph.interpreted_length) {
+    if (predict_word)
+      return {true, depth, syll_graph.interpreted_length};
+    else
+      return kFailed;
+  }
   auto index = syll_graph.indices.find(current_pos);
   if (index == syll_graph.indices.end())
-    return 0;
+    return kFailed;
   SyllableId current_syll_id = extra_code->at[depth];
   auto spellings = index->second.find(current_syll_id);
   if (spellings == index->second.end())
-    return 0;
-  size_t best_match = 0;
+    return kFailed;
+  CodeMatch best_match = kFailed;
   for (const SpellingProperties* props : spellings->second) {
-    size_t match_end_pos = match_extra_code(extra_code, depth + 1,
-                                            syll_graph, props->end_pos);
-    if (!match_end_pos) continue;
-    if (match_end_pos > best_match)
-      best_match = match_end_pos;
+    CodeMatch match = match_extra_code(extra_code, depth + 1, syll_graph,
+                                       props->end_pos, predict_word);
+    if (!match.success)
+      continue;
+    if (match.end_pos > best_match.end_pos)
+      best_match = match;
   }
   return best_match;
 }
@@ -87,11 +135,9 @@ void DictEntryIterator::AddChunk(dictionary::Chunk&& chunk) {
 void DictEntryIterator::Sort() {
   auto& chunks = query_result_->chunks;
   // partial-sort remaining chunks, move best match to chunk_index_
-  std::partial_sort(
-      chunks.begin() + chunk_index_,
-      chunks.begin() + chunk_index_ + 1,
-      chunks.end(),
-      dictionary::compare_chunk_by_head_element);
+  std::partial_sort(chunks.begin() + chunk_index_,
+                    chunks.begin() + chunk_index_ + 1, chunks.end(),
+                    dictionary::compare_chunk_by_head_element);
 }
 
 void DictEntryIterator::AddFilter(DictEntryFilter filter) {
@@ -99,6 +145,7 @@ void DictEntryIterator::AddFilter(DictEntryFilter filter) {
   // the introduced filter could invalidate the current or even all the
   // remaining entries
   while (!exhausted() && !filter_(Peek())) {
+    entry_.reset();
     FindNextEntry();
   }
 }
@@ -113,11 +160,15 @@ an<DictEntry> DictEntryIterator::Peek() {
     entry_ = New<DictEntry>();
     entry_->code = chunk.code;
     entry_->text = chunk.table->GetEntryText(e);
-    const double kS = 18.420680743952367; // log(1e8)
+    const double kS = 18.420680743952367;  // log(1e8)
     entry_->weight = e.weight - kS + chunk.credibility;
+    entry_->quality_len = chunk.quality_len;
     if (!chunk.remaining_code.empty()) {
       entry_->comment = "~" + chunk.remaining_code;
       entry_->remaining_code_length = chunk.remaining_code.length();
+    }
+    if (chunk.is_predictive_match()) {
+      entry_->matching_code_size = chunk.matching_code_size;
     }
   }
   return entry_;
@@ -140,22 +191,20 @@ bool DictEntryIterator::FindNextEntry() {
 }
 
 bool DictEntryIterator::Next() {
-  entry_.reset();
-  if (!FindNextEntry()) {
-    return false;
-  }
-  while (filter_ && !filter_(Peek())) {
+  do {
+    entry_.reset();
     if (!FindNextEntry()) {
       return false;
     }
-  }
+  } while (filter_ && !filter_(Peek()));
   return true;
 }
 
 // Note: does not apply filters
 bool DictEntryIterator::Skip(size_t num_entries) {
   while (num_entries > 0) {
-    if (exhausted()) return false;
+    if (exhausted())
+      return false;
     auto& chunk = query_result_->chunks[chunk_index_];
     if (chunk.cursor + num_entries < chunk.size) {
       chunk.cursor += num_entries;
@@ -170,7 +219,6 @@ bool DictEntryIterator::Skip(size_t num_entries) {
 bool DictEntryIterator::exhausted() const {
   return chunk_index_ >= query_result_->chunks.size();
 }
-
 
 // Dictionary members
 
@@ -191,6 +239,7 @@ static void lookup_table(Table* table,
                          DictEntryCollector* collector,
                          const SyllableGraph& syllable_graph,
                          size_t start_pos,
+                         bool predict_word,
                          double initial_credibility) {
   TableQueryResult result;
   if (!table->Query(syllable_graph, start_pos, &result)) {
@@ -201,41 +250,48 @@ static void lookup_table(Table* table,
     size_t end_pos = v.first;
     for (TableAccessor& a : v.second) {
       double cr = initial_credibility + a.credibility();
+      double q = a.quality_len();
       if (a.extra_code()) {
         do {
-          size_t actual_end_pos = dictionary::match_extra_code(
-              a.extra_code(), 0, syllable_graph, end_pos);
-          if (actual_end_pos == 0) continue;
-          (*collector)[actual_end_pos].AddChunk(
-              {table, a.code(), a.entry(), cr});
-        }
-        while (a.Next());
-      }
-      else {
-        (*collector)[end_pos].AddChunk({table, a, cr});
+          dictionary::CodeMatch match = dictionary::match_extra_code(
+              a.extra_code(), 0, syllable_graph, end_pos, predict_word);
+          if (!match.success)
+            continue;
+          size_t matching_code_size = a.index_code().size() + match.depth;
+          (*collector)[match.end_pos].AddChunk(
+              {table, a.code(), a.entry(), matching_code_size, cr, q});
+        } while (a.Next());
+      } else {
+        (*collector)[end_pos].AddChunk({table, a, cr, q});
       }
     }
   }
 }
 
-an<DictEntryCollector>
-Dictionary::Lookup(const SyllableGraph& syllable_graph,
-                   size_t start_pos,
-                   double initial_credibility) {
+an<DictEntryCollector> Dictionary::Lookup(const SyllableGraph& syllable_graph,
+                                          size_t start_pos,
+                                          const hash_set<string>* blacklist,
+                                          bool predict_word,
+                                          double initial_credibility) {
   if (!loaded())
     return nullptr;
   auto collector = New<DictEntryCollector>();
   for (const auto& table : tables_) {
     if (!table->IsOpen())
       continue;
-    lookup_table(table.get(), collector.get(),
-                 syllable_graph, start_pos, initial_credibility);
+    lookup_table(table.get(), collector.get(), syllable_graph, start_pos,
+                 predict_word, initial_credibility);
   }
   if (collector->empty())
     return nullptr;
-  // sort each group of equal code length
+  // for each group of equal code length, sort it and filter words
   for (auto& v : *collector) {
     v.second.Sort();
+    if (blacklist && !blacklist->empty()) {
+      v.second.AddFilter([blacklist](an<DictEntry> entry) {
+        return entry && !blacklist->count(entry->text);
+      });
+    }
   }
   return collector;
 }
@@ -243,15 +299,15 @@ Dictionary::Lookup(const SyllableGraph& syllable_graph,
 size_t Dictionary::LookupWords(DictEntryIterator* result,
                                const string& str_code,
                                bool predictive,
-                               size_t expand_search_limit) {
+                               size_t expand_search_limit,
+                               const hash_set<string>* blacklist) {
   DLOG(INFO) << "lookup: " << str_code;
   if (!loaded())
     return 0;
   vector<Prism::Match> keys;
   if (predictive) {
     prism_->ExpandSearch(str_code, &keys, expand_search_limit);
-  }
-  else {
+  } else {
     Prism::Match match{0, 0};
     if (prism_->GetValue(str_code, &match.value)) {
       keys.push_back(match);
@@ -265,7 +321,8 @@ size_t Dictionary::LookupWords(DictEntryIterator* result,
       SyllableId syllable_id = accessor.syllable_id();
       SpellingType type = accessor.properties().type;
       accessor.Next();
-      if (type > kNormalSpelling) continue;
+      if (type > kNormalSpelling)
+        continue;
       string remaining_code;
       if (match.length > code_length) {
         string syllable = primary_table()->GetSyllableById(syllable_id);
@@ -282,6 +339,11 @@ size_t Dictionary::LookupWords(DictEntryIterator* result,
         }
       }
     }
+  }
+  if (blacklist && !blacklist->empty()) {
+    result->AddFilter([blacklist](an<DictEntry> entry) {
+      return entry && !blacklist->count(entry->text);
+    });
   }
   return keys.size();
 }
@@ -300,13 +362,13 @@ bool Dictionary::Decode(const Code& code, vector<string>* result) {
 }
 
 bool Dictionary::Exists() const {
-  return boost::filesystem::exists(prism_->file_name()) &&
-      !tables_.empty() &&
-      boost::filesystem::exists(tables_[0]->file_name());
+  return std::filesystem::exists(prism_->file_path()) && !tables_.empty() &&
+         std::filesystem::exists(tables_[0]->file_path());
 }
 
 bool Dictionary::Remove() {
-  if (loaded()) return false;
+  if (loaded())
+    return false;
   prism_->Remove();
   for (const auto& table : tables_) {
     table->Remove();
@@ -317,7 +379,7 @@ bool Dictionary::Remove() {
 bool Dictionary::Load() {
   LOG(INFO) << "loading dictionary '" << name_ << "'.";
   if (tables_.empty()) {
-    LOG(ERROR) << "Cannnot load dictionary '" << name_
+    LOG(ERROR) << "Cannot load dictionary '" << name_
                << "'; it contains no tables.";
     return false;
   }
@@ -341,19 +403,14 @@ bool Dictionary::Load() {
 }
 
 bool Dictionary::loaded() const {
-  return !tables_.empty() && tables_[0]->IsOpen() &&
-      prism_ && prism_->IsOpen();
+  return !tables_.empty() && tables_[0]->IsOpen() && prism_ && prism_->IsOpen();
 }
 
 // DictionaryComponent members
 
-static const ResourceType kPrismResourceType = {
-  "prism", "", ".prism.bin"
-};
+static const ResourceType kPrismResourceType = {"prism", "", ".prism.bin"};
 
-static const ResourceType kTableResourceType = {
-  "table", "", ".table.bin"
-};
+static const ResourceType kTableResourceType = {"table", "", ".table.bin"};
 
 DictionaryComponent::DictionaryComponent()
     : prism_resource_resolver_(
@@ -363,11 +420,11 @@ DictionaryComponent::DictionaryComponent()
           Service::instance().CreateDeployedResourceResolver(
               kTableResourceType)) {}
 
-DictionaryComponent::~DictionaryComponent() {
-}
+DictionaryComponent::~DictionaryComponent() {}
 
 Dictionary* DictionaryComponent::Create(const Ticket& ticket) {
-  if (!ticket.schema) return nullptr;
+  if (!ticket.schema)
+    return nullptr;
   Config* config = ticket.schema->config();
   string dict_name;
   if (!config->GetString(ticket.name_space + "/dictionary", &dict_name)) {
@@ -390,9 +447,7 @@ Dictionary* DictionaryComponent::Create(const Ticket& ticket) {
       }
     }
   }
-  return Create(std::move(dict_name),
-                std::move(prism_name),
-                std::move(packs));
+  return Create(std::move(dict_name), std::move(prism_name), std::move(packs));
 }
 
 Dictionary* DictionaryComponent::Create(string dict_name,
@@ -401,27 +456,25 @@ Dictionary* DictionaryComponent::Create(string dict_name,
   // obtain prism and primary table objects
   auto primary_table = table_map_[dict_name].lock();
   if (!primary_table) {
-    auto file_path = table_resource_resolver_->ResolvePath(dict_name).string();
+    auto file_path = table_resource_resolver_->ResolvePath(dict_name);
     table_map_[dict_name] = primary_table = New<Table>(file_path);
   }
   auto prism = prism_map_[prism_name].lock();
   if (!prism) {
-    auto file_path = prism_resource_resolver_->ResolvePath(prism_name).string();
+    auto file_path = prism_resource_resolver_->ResolvePath(prism_name);
     prism_map_[prism_name] = prism = New<Prism>(file_path);
   }
   vector<of<Table>> tables = {std::move(primary_table)};
   for (const auto& pack : packs) {
     auto table = table_map_[pack].lock();
     if (!table) {
-      auto file_path = table_resource_resolver_->ResolvePath(pack).string();
+      auto file_path = table_resource_resolver_->ResolvePath(pack);
       table_map_[pack] = table = New<Table>(file_path);
     }
     tables.push_back(std::move(table));
   }
-  return new Dictionary(std::move(dict_name),
-                        std::move(packs),
-                        std::move(tables),
-                        std::move(prism));
+  return new Dictionary(std::move(dict_name), std::move(packs),
+                        std::move(tables), std::move(prism));
 }
 
 }  // namespace rime

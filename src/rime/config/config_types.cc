@@ -6,7 +6,6 @@
 //
 #include <cstdlib>
 #include <boost/algorithm/string.hpp>
-#include <boost/lexical_cast.hpp>
 #include <rime/config/config_data.h>
 #include <rime/config/config_types.h>
 
@@ -14,28 +13,23 @@ namespace rime {
 
 // ConfigValue members
 
-ConfigValue::ConfigValue(bool value)
-    : ConfigItem(kScalar) {
+ConfigValue::ConfigValue(bool value) : ConfigItem(kScalar) {
   SetBool(value);
 }
 
-ConfigValue::ConfigValue(int value)
-    : ConfigItem(kScalar) {
+ConfigValue::ConfigValue(int value) : ConfigItem(kScalar) {
   SetInt(value);
 }
 
-ConfigValue::ConfigValue(double value)
-    : ConfigItem(kScalar) {
+ConfigValue::ConfigValue(double value) : ConfigItem(kScalar) {
   SetDouble(value);
 }
 
 ConfigValue::ConfigValue(const char* value)
-    : ConfigItem(kScalar), value_(value) {
-}
+    : ConfigItem(kScalar), value_(value) {}
 
 ConfigValue::ConfigValue(const string& value)
-    : ConfigItem(kScalar), value_(value) {
-}
+    : ConfigItem(kScalar), value_(value) {}
 
 bool ConfigValue::GetBool(bool* value) const {
   if (!value || value_.empty())
@@ -45,12 +39,10 @@ bool ConfigValue::GetBool(bool* value) const {
   if ("true" == bstr) {
     *value = true;
     return true;
-  }
-  else if ("false" == bstr) {
+  } else if ("false" == bstr) {
     *value = false;
     return true;
-  }
-  else
+  } else
     return false;
 }
 
@@ -68,9 +60,8 @@ bool ConfigValue::GetInt(int* value) const {
   }
   // decimal
   try {
-    *value = boost::lexical_cast<int>(value_);
-  }
-  catch (...) {
+    *value = std::stoi(value_);
+  } catch (...) {
     return false;
   }
   return true;
@@ -80,16 +71,16 @@ bool ConfigValue::GetDouble(double* value) const {
   if (!value || value_.empty())
     return false;
   try {
-    *value = boost::lexical_cast<double>(value_);
-  }
-  catch (...) {
+    *value = std::stod(value_);
+  } catch (...) {
     return false;
   }
   return true;
 }
 
 bool ConfigValue::GetString(string* value) const {
-  if (!value) return false;
+  if (!value)
+    return false;
   *value = value_;
   return true;
 }
@@ -100,12 +91,12 @@ bool ConfigValue::SetBool(bool value) {
 }
 
 bool ConfigValue::SetInt(int value) {
-  value_ = boost::lexical_cast<string>(value);
+  value_ = std::to_string(value);
   return true;
 }
 
 bool ConfigValue::SetDouble(double value) {
-  value_ = boost::lexical_cast<string>(value);
+  value_ = std::to_string(value);
   return true;
 }
 

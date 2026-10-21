@@ -9,6 +9,7 @@
 #ifndef RIME_PRISM_H_
 #define RIME_PRISM_H_
 
+#include <string_view>
 #include <darts.h>
 #include <rime/common.h>
 #include <rime/algo/spelling.h>
@@ -23,6 +24,7 @@ using Credibility = float;
 
 struct SpellingDescriptor {
   SyllableId syllable_id;
+  // bit 30: is_correction
   int32_t type;
   Credibility credibility;
   String tips;
@@ -43,6 +45,8 @@ struct Metadata {
   // v1.0
   OffsetPtr<SpellingMap> spelling_map;
   char alphabet[256];
+  // v5.0
+  uint32_t max_key_length;
 };
 
 }  // namespace prism
@@ -67,23 +71,25 @@ class Prism : public MappedFile {
  public:
   using Match = Darts::DoubleArray::result_pair_type;
 
-  RIME_API explicit Prism(const string& file_name);
+  RIME_DLL explicit Prism(const path& file_path);
 
-  RIME_API bool Load();
-  RIME_API bool Save();
-  RIME_API bool Build(const Syllabary& syllabary,
+  RIME_DLL bool Load();
+  RIME_DLL bool Save();
+  RIME_DLL bool Build(const Syllabary& syllabary,
                       const Script* script = nullptr,
                       uint32_t dict_file_checksum = 0,
                       uint32_t schema_file_checksum = 0);
 
-  RIME_API bool HasKey(const string& key);
-  RIME_API bool GetValue(const string& key, int* value) const;
-  RIME_API void CommonPrefixSearch(const string& key, vector<Match>* result);
-  RIME_API void ExpandSearch(const string& key, vector<Match>* result, size_t limit);
+  RIME_DLL bool HasKey(std::string_view key);
+  RIME_DLL bool GetValue(std::string_view key, int* value) const;
+  RIME_DLL void CommonPrefixSearch(std::string_view key, vector<Match>* result);
+  RIME_DLL void ExpandSearch(std::string_view key,
+                             vector<Match>* result,
+                             size_t limit);
   SpellingAccessor QuerySpelling(SyllableId spelling_id);
 
-  RIME_API size_t array_size() const;
-
+  RIME_DLL size_t array_size() const;
+  RIME_DLL size_t max_key_length() const;
   uint32_t dict_file_checksum() const;
   uint32_t schema_file_checksum() const;
   Darts::DoubleArray& trie() const { return *trie_; }

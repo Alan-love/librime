@@ -12,10 +12,11 @@
 
 namespace rime {
 
-int TsvReader::operator() (Sink* sink) {
-  if (!sink) return 0;
-  LOG(INFO) << "reading tsv file: " << path_;
-  std::ifstream fin(path_.c_str());
+int TsvReader::operator()(Sink* sink) {
+  if (!sink)
+    return 0;
+  LOG(INFO) << "reading tsv file: " << file_path_;
+  std::ifstream fin(file_path_.c_str());
   string line, key, value;
   Tsv row;
   int line_no = 0;
@@ -25,30 +26,28 @@ int TsvReader::operator() (Sink* sink) {
     ++line_no;
     boost::algorithm::trim_right(line);
     // skip empty lines and comments
-    if (line.empty()) continue;
+    if (line.empty())
+      continue;
     if (enable_comment && line[0] == '#') {
       if (boost::starts_with(line, "#@")) {
         // metadata
         line.erase(0, 2);
-        boost::algorithm::split(row, line,
-                                boost::algorithm::is_any_of("\t"));
-        if (row.size() != 2 ||
-            !sink->MetaPut(row[0], row[1])) {
-          LOG(WARNING) << "invalid metadata at line " << line_no << ".";
+        boost::algorithm::split(row, line, boost::algorithm::is_any_of("\t"));
+        if (row.size() != 2 || !sink->MetaPut(row[0], row[1])) {
+          LOG(WARNING) << "invalid metadata at line " << line_no
+                       << " in file: " << file_path_ << ".";
         }
-      }
-      else if (line == "# no comment") {
+      } else if (line == "# no comment") {
         // a "# no comment" line disables further comments
         enable_comment = false;
       }
       continue;
     }
     // read a tsv entry
-    boost::algorithm::split(row, line,
-                            boost::algorithm::is_any_of("\t"));
-    if (!parser_(row, &key, &value) ||
-        !sink->Put(key, value)) {
-      LOG(WARNING) << "invalid entry at line " << line_no << ".";
+    boost::algorithm::split(row, line, boost::algorithm::is_any_of("\t"));
+    if (!parser_(row, &key, &value) || !sink->Put(key, value)) {
+      LOG(WARNING) << "invalid entry at line " << line_no
+                   << " in file: " << file_path_ << ".";
       continue;
     }
     ++num_entries;
@@ -57,10 +56,11 @@ int TsvReader::operator() (Sink* sink) {
   return num_entries;
 }
 
-int TsvWriter::operator() (Source* source) {
-  if (!source) return 0;
-  LOG(INFO) << "writing tsv file: " << path_;
-  std::ofstream fout(path_.c_str());
+int TsvWriter::operator()(Source* source) {
+  if (!source)
+    return 0;
+  LOG(INFO) << "writing tsv file: " << file_path_;
+  std::ofstream fout(file_path_.c_str());
   if (!file_description.empty()) {
     fout << "# " << file_description << std::endl;
   }

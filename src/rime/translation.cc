@@ -19,21 +19,7 @@ int Translation::Compare(an<Translation> other,
   auto theirs = other->Peek();
   if (!ours || !theirs)
     return 1;
-  int k = 0;
-  // the one nearer to the beginning of segment comes first
-  k = ours->start() - theirs->start();
-  if (k != 0)
-    return k;
-  // then the longer comes first
-  k = ours->end() - theirs->end();
-  if (k != 0)
-    return -k;
-  // compare quality
-  double qdiff = ours->quality() - theirs->quality();
-  if (qdiff != 0.)
-    return (qdiff > 0.) ? -1 : 1;
-  // draw
-  return 0;
+  return ours->compare(*theirs);
 }
 
 bool UniqueTranslation::Next() {
@@ -95,7 +81,7 @@ an<Candidate> UnionTranslation::Peek() {
   return translations_.front()->Peek();
 }
 
-UnionTranslation& UnionTranslation::operator+= (an<Translation> t) {
+UnionTranslation& UnionTranslation::operator+=(an<Translation> t) {
   if (t && !t->exhausted()) {
     translations_.push_back(t);
     set_exhausted(false);
@@ -103,7 +89,7 @@ UnionTranslation& UnionTranslation::operator+= (an<Translation> t) {
   return *this;
 }
 
-an<UnionTranslation> operator+ (an<Translation> x, an<Translation> y) {
+an<UnionTranslation> operator+(an<Translation> x, an<Translation> y) {
   auto z = New<UnionTranslation>();
   *z += x;
   *z += y;
@@ -145,8 +131,8 @@ void MergedTranslation::Elect() {
   size_t k = 0;
   for (; k < translations_.size(); ++k) {
     const auto& current = translations_[k];
-    const auto& next = k + 1 < translations_.size() ?
-                               translations_[k + 1] : nullptr;
+    const auto& next =
+        k + 1 < translations_.size() ? translations_[k + 1] : nullptr;
     if (current->Compare(next, previous_candidates_) <= 0) {
       if (current->exhausted()) {
         translations_.erase(translations_.begin() + k);
@@ -160,13 +146,12 @@ void MergedTranslation::Elect() {
   if (k >= translations_.size()) {
     DLOG(WARNING) << "failed to elect a winner translation.";
     set_exhausted(true);
-  }
-  else {
+  } else {
     set_exhausted(false);
   }
 }
 
-MergedTranslation& MergedTranslation::operator+= (an<Translation> t) {
+MergedTranslation& MergedTranslation::operator+=(an<Translation> t) {
   if (t && !t->exhausted()) {
     translations_.push_back(t);
     Elect();
@@ -204,8 +189,7 @@ an<Candidate> CacheTranslation::Peek() {
 // DistinctTranslation
 
 DistinctTranslation::DistinctTranslation(an<Translation> translation)
-    : CacheTranslation(translation) {
-}
+    : CacheTranslation(translation) {}
 
 bool DistinctTranslation::Next() {
   if (exhausted())
@@ -213,9 +197,8 @@ bool DistinctTranslation::Next() {
   candidate_set_.insert(Peek()->text());
   do {
     CacheTranslation::Next();
-  }
-  while (!exhausted() &&
-         AlreadyHas(Peek()->text()));  // skip duplicate candidates
+  } while (!exhausted() &&
+           AlreadyHas(Peek()->text()));  // skip duplicate candidates
   return true;
 }
 
@@ -236,8 +219,7 @@ bool PrefetchTranslation::Next() {
   }
   if (!cache_.empty()) {
     cache_.pop_front();
-  }
-  else {
+  } else {
     translation_->Next();
   }
   if (cache_.empty() && translation_->exhausted()) {
@@ -252,8 +234,7 @@ an<Candidate> PrefetchTranslation::Peek() {
   }
   if (!cache_.empty() || Replenish()) {
     return cache_.front();
-  }
-  else {
+  } else {
     return translation_->Peek();
   }
 }

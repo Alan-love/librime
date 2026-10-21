@@ -16,13 +16,12 @@ namespace rime {
 class DbAccessor {
  public:
   DbAccessor() = default;
-  explicit DbAccessor(const string& prefix)
-      : prefix_(prefix) {}
+  explicit DbAccessor(const string& prefix) : prefix_(prefix) {}
   virtual ~DbAccessor() = default;
 
   virtual bool Reset() = 0;
-  virtual bool Jump(const string &key) = 0;
-  virtual bool GetNextRecord(string *key, string *value) = 0;
+  virtual bool Jump(const string& key) = 0;
+  virtual bool GetNextRecord(string* key, string* value) = 0;
   virtual bool exhausted() = 0;
 
  protected:
@@ -33,18 +32,18 @@ class DbAccessor {
 
 class Db : public Class<Db, const string&> {
  public:
-  Db(const string& file_name, const string& name);
+  Db(const path& file_path, const string& name);
   virtual ~Db() = default;
 
-  RIME_API bool Exists() const;
-  RIME_API virtual bool Remove();
+  RIME_DLL bool Exists() const;
+  RIME_DLL virtual bool Remove();
 
   virtual bool Open() = 0;
   virtual bool OpenReadOnly() = 0;
   virtual bool Close() = 0;
 
-  virtual bool Backup(const string& snapshot_file) = 0;
-  virtual bool Restore(const string& snapshot_file) = 0;
+  virtual bool Backup(const path& snapshot_file) = 0;
+  virtual bool Restore(const path& snapshot_file) = 0;
 
   virtual bool CreateMetadata();
   virtual bool MetaFetch(const string& key, string* value) = 0;
@@ -52,13 +51,13 @@ class Db : public Class<Db, const string&> {
 
   virtual an<DbAccessor> QueryMetadata() = 0;
   virtual an<DbAccessor> QueryAll() = 0;
-  virtual an<DbAccessor> Query(const string &key) = 0;
-  virtual bool Fetch(const string &key, string *value) = 0;
-  virtual bool Update(const string &key, const string &value) = 0;
-  virtual bool Erase(const string &key) = 0;
+  virtual an<DbAccessor> Query(const string& key) = 0;
+  virtual bool Fetch(const string& key, string* value) = 0;
+  virtual bool Update(const string& key, const string& value) = 0;
+  virtual bool Erase(const string& key) = 0;
 
   const string& name() const { return name_; }
-  const string& file_name() const { return file_name_; }
+  const path& file_path() const { return file_path_; }
   bool loaded() const { return loaded_; }
   bool readonly() const { return readonly_; }
   bool disabled() const { return disabled_; }
@@ -67,7 +66,7 @@ class Db : public Class<Db, const string&> {
 
  protected:
   string name_;
-  string file_name_;
+  path file_path_;
   bool loaded_ = false;
   bool readonly_ = false;
   bool disabled_ = false;
@@ -81,6 +80,7 @@ class Transactional {
   virtual bool AbortTransaction() { return false; }
   virtual bool CommitTransaction() { return false; }
   bool in_transaction() const { return in_transaction_; }
+
  protected:
   bool in_transaction_ = false;
 };
@@ -93,20 +93,19 @@ class Recoverable {
 
 class ResourceResolver;
 
-class DbComponentBase {
+class RIME_DLL DbComponentBase {
  public:
   DbComponentBase();
   virtual ~DbComponentBase();
 
-  string DbFilePath(const string& name, const string& extension) const;
+  path DbFilePath(const string& name, const string& extension) const;
 
  protected:
   the<ResourceResolver> db_resource_resolver_;
 };
 
 template <class DbClass>
-class DbComponent : public DbClass::Component,
-                    protected DbComponentBase {
+class DbComponent : public DbClass::Component, protected DbComponentBase {
  public:
   virtual string extension() const;
 
